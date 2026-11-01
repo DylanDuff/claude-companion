@@ -13,6 +13,7 @@ mod segmented;
 mod settings;
 mod settings_panel;
 mod state;
+mod sticky;
 mod storage;
 mod switch;
 mod text_input;

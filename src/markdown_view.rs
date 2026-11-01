@@ -14,6 +14,7 @@ use crate::{
     icon::Icon,
     markdown::{Block, Document, Inline, Marks},
     scroll,
+    sticky::StickyHeader,
     theme,
 };
 
@@ -165,7 +166,12 @@ impl RenderContext {
             })
             .child(Icon::Copy.render(15., theme::text()))
             .child("Copy");
+        // Opaque, with its own top padding, so it covers the code when it is
+        // pinned to the top of the chat.
         let header = div()
+            .pt_3()
+            .pb_1()
+            .bg(rgb(code_theme::BACKGROUND))
             .flex()
             .items_center()
             .justify_between()
@@ -202,13 +208,8 @@ impl RenderContext {
             .rounded(px(14.))
             .bg(rgb(code_theme::BACKGROUND))
             .px_4()
-            .pt_3()
             .pb_4()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(header)
-            .child(body)
+            .child(StickyHeader::new(header, body, px(4.)))
             .into_any_element()
     }
 
