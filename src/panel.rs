@@ -31,7 +31,18 @@ fn with_native_window(window: &Window, f: impl FnOnce(*mut objc::runtime::Object
 pub fn show(window: &Window) {
     use objc::{msg_send, runtime::Object, sel, sel_impl};
 
+    // NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton
+    const TRAFFIC_LIGHTS: [usize; 3] = [0, 1, 2];
+
     with_native_window(window, |native_window| unsafe {
+        // Hidden on every show, so nothing that re-lays out the titlebar
+        // can bring them back.
+        for kind in TRAFFIC_LIGHTS {
+            let button: *mut Object = msg_send![native_window, standardWindowButton: kind];
+            if !button.is_null() {
+                let _: () = msg_send![button, setHidden: objc::runtime::YES];
+            }
+        }
         let _: () = msg_send![native_window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
     });
 }

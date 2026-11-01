@@ -1,15 +1,18 @@
 use gpui::{Hsla, Rgba, rgb, rgba};
 
+// The window is blurred (`WindowBackgroundAppearance::Blurred`), so the
+// background and the surfaces on it are partly transparent to let it show.
+
 pub fn background() -> Rgba {
-    rgb(0x1e1e22)
+    rgba(0x1e1e2299)
 }
 
 pub fn surface() -> Rgba {
-    rgb(0x2a2a30)
+    rgba(0xffffff14)
 }
 
 pub fn border() -> Rgba {
-    rgb(0x3a3a42)
+    rgba(0xffffff1f)
 }
 
 pub fn text() -> Rgba {
@@ -17,7 +20,7 @@ pub fn text() -> Rgba {
 }
 
 pub fn muted_text() -> Hsla {
-    Hsla::from(rgb(0xe8e8ec)).opacity(0.45)
+    Hsla::from(rgb(0xe8e8ec)).opacity(0.5)
 }
 
 pub fn accent() -> Rgba {
@@ -29,7 +32,7 @@ pub fn on_accent() -> Rgba {
 }
 
 pub fn user_bubble() -> Rgba {
-    rgb(0x3b3b45)
+    rgba(0xffffff24)
 }
 
 pub fn error() -> Rgba {
@@ -41,7 +44,7 @@ pub fn selection() -> Rgba {
 }
 
 pub fn code_background() -> Rgba {
-    rgb(0x17171a)
+    rgba(0x0000004d)
 }
 
 pub fn inline_code() -> Rgba {

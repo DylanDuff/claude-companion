@@ -60,6 +60,7 @@ fn window_options(cx: &App) -> WindowOptions {
         kind: WindowKind::PopUp,
         is_resizable: false,
         is_minimizable: false,
+        window_background: WindowBackgroundAppearance::Blurred,
         ..Default::default()
     }
 }
