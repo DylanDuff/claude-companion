@@ -12,6 +12,7 @@ mod settings;
 mod settings_panel;
 mod state;
 mod storage;
+mod switch;
 mod text_input;
 mod theme;
 

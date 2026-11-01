@@ -33,10 +33,6 @@ pub fn accent() -> Rgba {
     rgb(0xd97757)
 }
 
-pub fn on_accent() -> Rgba {
-    rgb(0xffffff)
-}
-
 pub fn user_bubble() -> Rgba {
     rgba(0xffffff1f)
 }
@@ -72,4 +68,22 @@ pub fn send_ready_icon() -> Rgba {
 
 pub fn send_idle() -> Rgba {
     rgba(0xffffff26)
+}
+
+/// Track behind a segmented control.
+pub fn segment_track() -> Rgba {
+    rgba(0x0000002e)
+}
+
+/// The selected segment, lifted off the track.
+pub fn segment_selected() -> Rgba {
+    rgba(0xffffff29)
+}
+
+pub fn switch_off() -> Rgba {
+    rgba(0xffffff29)
+}
+
+pub fn switch_knob() -> Rgba {
+    rgb(0xffffff)
 }

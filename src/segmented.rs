@@ -1,12 +1,13 @@
 use std::rc::Rc;
 
-use gpui::{App, SharedString, Window, div, prelude::*};
+use gpui::{App, FontWeight, SharedString, Window, div, prelude::*, px};
 
 use crate::{settings::Choice, theme};
 
 type OnSelect<T> = Rc<dyn Fn(&T, &mut Window, &mut App)>;
 
-/// A row of buttons for picking one value of a [`Choice`].
+/// A full-width track of equal segments for picking one value of a
+/// [`Choice`], with the selected segment lifted off the track.
 #[derive(IntoElement)]
 pub struct Segmented<T: Choice> {
     id: SharedString,
@@ -30,27 +31,40 @@ impl<T: Choice> Segmented<T> {
 
 impl<T: Choice> RenderOnce for Segmented<T> {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let options = T::all().iter().enumerate().map(|(index, &choice)| {
+        let segments = T::all().iter().enumerate().map(|(index, &choice)| {
             let selected = choice == self.value;
             let on_select = self.on_select.clone();
             div()
                 .id((self.id.clone(), index))
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .text_xs()
-                .cursor_pointer()
+                .flex_1()
+                .min_w_0()
+                .h(px(26.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(7.))
+                .text_size(px(12.5))
                 .map(|this| {
                     if selected {
-                        this.bg(theme::accent()).text_color(theme::on_accent())
+                        this.bg(theme::segment_selected())
+                            .text_color(theme::text())
+                            .font_weight(FontWeight::MEDIUM)
                     } else {
-                        this.bg(theme::surface())
-                            .hover(|style| style.bg(theme::user_bubble()))
+                        this.text_color(theme::muted_text())
+                            .cursor_pointer()
+                            .hover(|style| style.text_color(theme::text()))
+                            .on_click(move |_, window, cx| on_select(&choice, window, cx))
                     }
                 })
-                .on_click(move |_, window, cx| on_select(&choice, window, cx))
                 .child(choice.label())
         });
-        div().flex().flex_wrap().gap_1().children(options)
+        div()
+            .flex()
+            .w_full()
+            .p(px(2.))
+            .gap(px(2.))
+            .rounded(px(9.))
+            .bg(theme::segment_track())
+            .children(segments)
     }
 }

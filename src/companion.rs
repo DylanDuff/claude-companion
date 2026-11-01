@@ -28,8 +28,10 @@ const BLUR_GRACE: Duration = Duration::from_millis(150);
 
 /// Panel height with no conversation: just the composer.
 const COMPACT_HEIGHT: f32 = 96.;
-/// Panel height once there is a conversation or the settings are open.
+/// Panel height once there is a conversation.
 const EXPANDED_HEIGHT: f32 = 540.;
+/// Panel height for settings, tall enough to show every section unscrolled.
+const SETTINGS_HEIGHT: f32 = 720.;
 
 /// How far the mouse must move while pressed before the panel starts moving,
 /// so plain clicks still reach buttons.
@@ -655,12 +657,12 @@ impl Companion {
         self.view == View::Chat && self.state.transcript.is_empty() && self.pending.is_none()
     }
 
-    /// Resizes the panel when switching between compact and expanded.
+    /// Resizes the panel to suit the current view.
     fn sync_height(&mut self, cx: &mut Context<Self>) {
-        let height = if self.is_compact() {
-            COMPACT_HEIGHT
-        } else {
-            EXPANDED_HEIGHT
+        let height = match self.view {
+            View::Settings => SETTINGS_HEIGHT,
+            View::Chat if self.is_compact() => COMPACT_HEIGHT,
+            View::Chat => EXPANDED_HEIGHT,
         };
         if self.height == Some(height) {
             return;
