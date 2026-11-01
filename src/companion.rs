@@ -762,7 +762,10 @@ impl Companion {
             .track_scroll(&self.scroll)
             .px_6()
             .pt_6()
-            .pb_3()
+            // The space above the composer lives here rather than as the
+            // card's top margin, so scrolled messages clip right at the
+            // card's edge instead of a margin's width above it.
+            .pb(px(12. + theme::COMPOSER_MARGIN))
             .flex()
             .flex_col()
             .gap_5()
@@ -811,7 +814,8 @@ impl Companion {
             .gap(px(COMPOSER_ROW_GAP))
             .when(compact, |this| this.size_full().justify_between())
             .when(!compact, |this| {
-                this.m(px(theme::COMPOSER_MARGIN))
+                this.mx(px(theme::COMPOSER_MARGIN))
+                    .mb(px(theme::COMPOSER_MARGIN))
                     .rounded(px(theme::COMPOSER_RADIUS))
                     .bg(theme::surface())
                     .border_1()
