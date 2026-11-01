@@ -124,8 +124,10 @@ mod native {
 
         /// Resizes to `height`, keeping the bottom edge where it is, so the
         /// panel grows upward from where the composer sits (typically near
-        /// the bottom of the screen). If that would push the top past the
-        /// screen's visible area, the panel slides down just enough to fit.
+        /// the bottom of the screen). If that would push the top under the
+        /// menu bar, the panel slides down just enough to fit. The lowest it
+        /// may sit is the screen's real bottom, matching `snap_target`, so a
+        /// panel snapped below the Dock's top isn't pushed up as it grows.
         /// Call it from a spawned task, outside gpui's app borrow, so gpui
         /// sees the new size.
         pub fn set_height(self, height: f32) {
@@ -141,9 +143,10 @@ mod native {
                 let mut bottom = frame.origin.y;
                 let screen: id = msg_send![window, screen];
                 if screen != nil {
-                    let visible: NSRect = msg_send![screen, visibleFrame];
-                    let visible_top = visible.origin.y + visible.size.height;
-                    bottom = bottom.min(visible_top - height).max(visible.origin.y);
+                    let whole: NSRect = msg_send![screen, frame];
+                    let usable: NSRect = msg_send![screen, visibleFrame];
+                    let usable_top = usable.origin.y + usable.size.height;
+                    bottom = bottom.min(usable_top - height).max(whole.origin.y);
                 }
                 let frame = NSRect::new(
                     NSPoint::new(frame.origin.x, bottom),
