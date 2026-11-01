@@ -7,9 +7,15 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 
 - `src/main.rs`: app setup, window options, Dock hiding (`setActivationPolicy`
   via `objc`).
-- `src/companion.rs`: root view. Owns `State`, the pending reply, show/hide.
-- `src/claude.rs`: CLI flags, process plumbing, `stream-json` parsing.
-- `src/state.rs`: `state.json` persistence and the 5-minute expiry rule.
+- `src/companion.rs`: root view. Owns `State`, `Settings`, the warm
+  `claude` session, the pending reply, show/hide and the chat/settings view.
+- `src/claude.rs`: CLI flags, the long-lived process (`stream-json` in and
+  out), event parsing.
+- `src/state.rs`: `state.json` (conversation) and the idle-expiry rule.
+- `src/settings.rs`: `settings.json`; `choices!` declares each enum setting
+  and its labels together. `src/storage.rs` handles shared file I/O.
+- `src/settings_panel.rs`, `src/segmented.rs`: settings view (⌘,). Every
+  setting is a `Segmented<T: Choice>`, `bool` included.
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
 - `src/message_bubble.rs`, `src/theme.rs`: presentation only.
@@ -21,16 +27,24 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   `gpui`, so don't add it.
 - **Fixed CLI working dir** `~/Library/Application Support/claude-companion/workdir`:
   `--resume` only finds sessions created from the same directory.
-- **Tool lockdown:** `--tools` and `--allowedTools` both `WebSearch,WebFetch`
-  (the second pre-approves them, since `-p` has nobody to answer prompts),
-  plus `--strict-mcp-config` to load no MCP servers. User settings and hooks
-  from `~/.claude` still apply.
-- **Prompt goes over stdin**, never argv, so text starting with `-` isn't a flag.
+- **Tool lockdown:** `--tools` lists only the enabled web tools (`""` disables
+  all), `--allowedTools` pre-approves them (nobody can answer prompts in
+  `-p`), and `--strict-mcp-config` loads no MCP servers. User settings and
+  hooks from `~/.claude` still apply.
+- **One warm process per conversation:** started on show (prewarm), messages
+  written to stdin as JSON lines. It is killed by ⌘N, on expiry, after the
+  idle timeout while hidden, and on model, effort or tool changes (deferred
+  until no reply is running; it resumes the same session).
+- **Turn lifecycle:** a reply is committed and the input unlocked at the
+  last `message_delta` stop (`end_turn` etc.). The `result` arrives
+  about 1.8s later, after the CLI's `post_turn_summary`, and only settles
+  `session_id`. A message sent meanwhile is queued by the CLI. A `result`
+  with no turn running is a startup failure (bad `--resume`) and is ignored;
+  `on_exit` reports it and drops the session id.
 - **`last_activity` updates only when a reply finishes**; expiry is skipped
-  while a reply is pending.
-- **`session_id` comes from the `result` event**; the first message omits
-  `--resume`.
-- Dropping `Companion::reply_task` kills the child (`kill_on_drop`).
+  while busy (`pending` or `unsettled`).
+- `Session` fields are ordered reader-first so a deliberate kill cancels the
+  reader before it can report the exit.
 
 ## Build
 

@@ -1,12 +1,14 @@
 # Claude Companion
 
 A small macOS background app: press **⌥Space** anywhere to open a floating chat
-window backed by `claude -p`. Conversations carry on as long as replies keep
-coming within 5 minutes of each other; after that, the next time you open it
-you start fresh.
+window backed by a warm `claude -p` process. Conversations carry on as long as
+you come back within 5 minutes of the last reply; after that, the next time
+you open it you start fresh.
 
 The companion can search and read the web (`WebSearch`, `WebFetch`) but has no
-other tools and no MCP servers.
+other tools and no MCP servers. It defaults to Sonnet at low effort for quick
+replies. Change the model, effort, web tools, idle timeout, shortcut and
+click-away behaviour in settings (⌘,).
 
 ## Run
 
@@ -22,6 +24,7 @@ cargo run
 | Enter | Send |
 | Esc | Hide |
 | ⌘N | New chat |
+| ⌘, | Settings |
 | ⌘Q | Quit |
 
 Set `CLAUDE_COMPANION_CLI` if `claude` isn't in `~/.local/bin`,
@@ -29,5 +32,5 @@ Set `CLAUDE_COMPANION_CLI` if `claude` isn't in `~/.local/bin`,
 
 ## Docs
 
-- [Architecture](docs/architecture.md): lifecycle, session expiry, CLI flags
-  and events, known limitations.
+- [Architecture](docs/architecture.md): lifecycle, warm CLI process, turn
+  states, settings, timings, known limitations.
