@@ -1,0 +1,6 @@
+/target
+.env
+.claude/
+.conductor/
+.codex/
+.DS_Store
