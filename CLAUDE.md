@@ -14,12 +14,15 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 - `src/state.rs`: `state.json` (conversation) and the idle-expiry rule.
 - `src/settings.rs`: `settings.json`; `choices!` declares each enum setting
   and its labels together. `src/storage.rs` handles shared file I/O.
-- `src/settings_panel.rs`, `src/segmented.rs`: settings view, opened from the header button. Every
+- `src/settings_panel.rs`, `src/segmented.rs`: settings view, opened from the composer's sliders icon. Every
   setting is a `Segmented<T: Choice>`, `bool` included.
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
 - `src/markdown.rs` (parse to blocks, `DocumentCache`), `src/markdown_view.rs`
   (render), `src/highlight.rs` (syntect): assistant replies as Markdown.
+- `src/panel.rs`: native NSPanel work (borderless rounded style, top-anchored
+  resize, show/hide). `src/icon.rs`: embedded SVG icons (`icons!`) and
+  `IconButton`.
 - `src/message_bubble.rs`, `src/theme.rs`: presentation only. Theme colours
   are translucent because the window background is `Blurred`.
 
@@ -50,6 +53,9 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   `orderOut:` on the non-activating NSPanel). Don't use `cx.activate` or
   `cx.hide`: activating the app races with gpui's key-window workaround.
   Hide-on-blur is debounced (`BLUR_GRACE`).
+- **Markdown text uses explicit `TextRun`s** (`markdown_view::runs`) so
+  inline code can switch to Menlo. Runs don't inherit colour or weight from
+  parents, so pass them down as `Look`.
 - **Inline marks must stay non-overlapping** (`InlineBuilder::finish`):
   GPUI highlight runs can't overlap.
 - `Session` fields are ordered reader-first so a deliberate kill cancels the

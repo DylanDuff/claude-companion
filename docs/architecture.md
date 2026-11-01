@@ -3,18 +3,21 @@
 ## Lifecycle
 
 1. Launch: activation policy set to Accessory (no Dock icon or menu bar),
-   settings loaded, key bindings registered, the window opened as
-   `WindowKind::PopUp` (480×560, transparent titlebar, not resizable), and
-   the configured shortcut registered.
+   settings loaded, icons registered (`icon::Assets`), the window opened as
+   `WindowKind::PopUp` (440 wide, no title bar, blurred background),
+   `panel::configure` applied, and the configured shortcut registered.
 2. The shortcut calls `Companion::toggle`:
    - **visible and key** → `panel::hide` (`orderOut:`).
    - otherwise → apply the expiry rule, **start `claude` if it isn't
      running** (prewarm), `panel::show` (`makeKeyAndOrderFront:`), focus,
      scroll to the bottom.
 
-   `panel::show` also hides the traffic lights on every show. The window
-   uses `WindowBackgroundAppearance::Blurred`, and the theme colours are
-   partly transparent to let it show through.
+   `panel::configure` switches the panel to a borderless non-activating
+   style mask, which removes the title bar, traffic lights and frame
+   outline, and clips the content view and gpui's blur subview to
+   `CORNER_RADIUS`. The root element draws the matching hairline border. The
+   window uses `WindowBackgroundAppearance::Blurred`, and the theme colours
+   are partly transparent so the blur shows through.
 
    The PopUp window is a non-activating `NSPanel`, so it takes keyboard
    focus while the previous app stays frontmost, and hiding returns focus to
@@ -28,7 +31,29 @@
 4. On hide, an idle timer is armed. If the window is still hidden and no
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.
-5. ⌘N starts a new chat. The header button switches between chat and settings. ⌘Q quits.
+5. ⌘N or **+** starts a new chat. ⌘Q quits.
+
+## Layout (`companion.rs`)
+
+- **Compact** (no conversation, chat view): the panel is just the composer,
+  `COMPACT_HEIGHT` tall.
+- **Expanded** (any message, or settings open): transcript above, composer
+  as an inset card below, `EXPANDED_HEIGHT` tall.
+- `sync_height` runs each render and resizes only on change, deferred past
+  the frame. `panel::set_height` keeps the top edge fixed, since AppKit
+  frames grow from the bottom-left.
+- Composer row: **+** new chat, **globe** toggles web search and page
+  reading together (blue when on; the same settings as the Settings page,
+  restarting `claude` once idle), **sliders** open Settings, and the
+  **send** button (light when there's text to send).
+- Under each reply: **Copy** (raw Markdown; shows a tick for 1.5s),
+  **Read aloud** (`/usr/bin/say -f -` fed the document's
+  `plain_text()`, code blocks skipped; click again to stop, as dropping the
+  task kills `say`) and, on the latest reply when idle, **Retry**.
+  Retry drops the reply and re-sends the question. The CLI session can't be
+  rewound, so Claude still has the earlier answer in context.
+- Icons are hand-drawn 24×24 stroke SVGs in `assets/icons/`, compiled in by
+  the `icons!` macro and rendered with `svg()` (tinted by text colour).
 
 ## Persistence (`storage.rs`)
 
