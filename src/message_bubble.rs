@@ -6,7 +6,11 @@ use gpui::{
 };
 
 use crate::{
-    markdown::Document, markdown_view::MarkdownView, selection::Selectable, state::Role, theme,
+    markdown::Document,
+    markdown_view::{CodeCopy, MarkdownView},
+    selection::Selectable,
+    state::Role,
+    theme,
 };
 
 /// One transcript entry. User messages sit right in a filled bubble as plain
@@ -47,10 +51,11 @@ impl MessageBubble {
         id: impl Into<SharedString>,
         document: Rc<Document>,
         selectable: Selectable,
+        code_copy: CodeCopy,
     ) -> Self {
         Self {
             role: Role::Assistant,
-            content: MarkdownView::new(id, document, selectable).into_any_element(),
+            content: MarkdownView::new(id, document, selectable, code_copy).into_any_element(),
         }
     }
 }

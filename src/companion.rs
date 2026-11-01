@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, rc::Rc, time::Duration};
 
 use gpui::{
     AnyElement, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable, KeyBinding,
@@ -13,6 +13,7 @@ use crate::{
     hotkey,
     icon::{Icon, IconButton},
     markdown::DocumentCache,
+    markdown_view::CodeCopy,
     message_bubble::MessageBubble,
     panel::{Panel, Placement},
     scroll,
@@ -95,6 +96,15 @@ struct Session {
     process: claude::Process,
 }
 
+/// Which Copy button shows its tick.
+#[derive(Clone, PartialEq)]
+enum Copied {
+    /// A whole reply, by transcript index.
+    Reply(usize),
+    /// A code block, by its key from `MarkdownView`.
+    Code(SharedString),
+}
+
 /// A reply being read aloud by `say`. Dropping it stops the speech.
 struct Speech {
     /// Transcript index of the reply.
@@ -131,8 +141,8 @@ pub struct Companion {
     scroll: ScrollHandle,
     documents: DocumentCache,
     speech: Option<Speech>,
-    /// Transcript index of the reply whose Copy button shows a tick.
-    copied: Option<usize>,
+    /// The Copy button currently showing its tick.
+    copied: Option<Copied>,
     copied_reset: Option<Task<()>>,
     /// The native panel, configured once at creation.
     panel: Option<Panel>,
@@ -709,6 +719,21 @@ impl Companion {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
+    /// Copy state and handler for the code blocks in replies.
+    fn code_copy(&self, cx: &mut Context<Self>) -> CodeCopy {
+        CodeCopy {
+            copied: match &self.copied {
+                Some(Copied::Code(key)) => Some(key.clone()),
+                _ => None,
+            },
+            on_copy: Rc::new(
+                cx.listener(|this, (key, code): &(SharedString, String), _, cx| {
+                    this.copy_code(key.clone(), code, cx)
+                }),
+            ),
+        }
+    }
+
     /// Where message `index`'s text registers, with its part of the
     /// selection highlighted.
     fn selectable(&self, index: usize) -> Selectable {
@@ -725,7 +750,17 @@ impl Companion {
             return;
         };
         cx.write_to_clipboard(ClipboardItem::new_string(message.text.clone()));
-        self.copied = Some(index);
+        self.flash_copied(Copied::Reply(index), cx);
+    }
+
+    fn copy_code(&mut self, key: SharedString, code: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(code.to_string()));
+        self.flash_copied(Copied::Code(key), cx);
+    }
+
+    /// Shows `target`'s Copy button as copied for a moment.
+    fn flash_copied(&mut self, target: Copied, cx: &mut Context<Self>) {
+        self.copied = Some(target);
         self.copied_reset = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(COPIED_FEEDBACK).await;
             this.update(cx, |companion, cx| {
@@ -990,7 +1025,7 @@ impl Companion {
     }
 
     fn render_reply_actions(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
-        let copied = self.copied == Some(index);
+        let copied = self.copied == Some(Copied::Reply(index));
         let speaking = self
             .speech
             .as_ref()
@@ -1027,6 +1062,7 @@ impl Companion {
 
     fn render_chat(&mut self, cx: &mut Context<Self>) -> AnyElement {
         self.text_registry.clear();
+        let code_copy = self.code_copy(cx);
         let mut messages = Vec::with_capacity(self.state.transcript.len());
         for (index, message) in self.state.transcript.iter().enumerate() {
             let element = match message.role {
@@ -1038,6 +1074,7 @@ impl Companion {
                         format!("message-{index}"),
                         self.documents.get(&message.text),
                         self.selectable(index),
+                        code_copy.clone(),
                     ))
                     .child(self.render_reply_actions(index, cx))
                     .into_any_element(),
@@ -1072,10 +1109,9 @@ impl Companion {
             messages.push(element);
         }
         let pending_selectable = self.selectable(self.state.transcript.len());
-        let pending = self
-            .pending
-            .as_ref()
-            .map(|pending| render_pending(pending, &mut self.documents, pending_selectable));
+        let pending = self.pending.as_ref().map(|pending| {
+            render_pending(pending, &mut self.documents, pending_selectable, code_copy)
+        });
         self.documents.sweep();
         scroll::lock_axis(div().id("transcript").flex_1().overflow_y_scroll())
             .track_scroll(&self.scroll)
@@ -1210,6 +1246,7 @@ fn render_pending(
     pending: &Pending,
     documents: &mut DocumentCache,
     selectable: Selectable,
+    code_copy: CodeCopy,
 ) -> AnyElement {
     let status = pending.status.clone().unwrap_or_else(|| "Thinking…".into());
     let status_line = div()
@@ -1219,7 +1256,12 @@ fn render_pending(
     if pending.reply.is_empty() {
         return status_line.into_any_element();
     }
-    let bubble = MessageBubble::markdown("pending", documents.get(&pending.reply), selectable);
+    let bubble = MessageBubble::markdown(
+        "pending",
+        documents.get(&pending.reply),
+        selectable,
+        code_copy,
+    );
     div()
         .flex()
         .flex_col()

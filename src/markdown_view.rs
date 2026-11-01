@@ -3,9 +3,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ClipboardItem, Font, FontFeatures, FontStyle, FontWeight, Hsla,
-    InteractiveText, SharedString, StrikethroughStyle, TextRun, UnderlineStyle, Window, div,
-    prelude::*, px, rgb,
+    AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, Hsla, InteractiveText,
+    SharedString, StrikethroughStyle, TextRun, UnderlineStyle, Window, div, prelude::*, px, rgb,
 };
 
 use crate::{
@@ -23,12 +22,25 @@ pub const MONOSPACE: &str = "Menlo";
 const CODE_RADIUS: f32 = 14.;
 const SYSTEM: &str = ".SystemUIFont";
 
+type OnCopy = Rc<dyn Fn(&(SharedString, String), &mut Window, &mut App)>;
+
+/// Copy state for code blocks, owned by the view that keeps it across frames
+/// (a `MarkdownView` is rebuilt every frame and remembers nothing).
+#[derive(Clone)]
+pub struct CodeCopy {
+    /// Key of the code block whose button shows "Copied".
+    pub copied: Option<SharedString>,
+    /// Called with the block's key and its code when Copy is clicked.
+    pub on_copy: OnCopy,
+}
+
 #[derive(IntoElement)]
 pub struct MarkdownView {
     /// Prefix for element ids, unique per message.
     id: SharedString,
     document: Rc<Document>,
     selectable: Selectable,
+    code_copy: CodeCopy,
 }
 
 impl MarkdownView {
@@ -36,11 +48,13 @@ impl MarkdownView {
         id: impl Into<SharedString>,
         document: Rc<Document>,
         selectable: Selectable,
+        code_copy: CodeCopy,
     ) -> Self {
         Self {
             id: id.into(),
             document,
             selectable,
+            code_copy,
         }
     }
 }
@@ -51,6 +65,7 @@ impl RenderOnce for MarkdownView {
             prefix: self.id,
             next_id: 0,
             selectable: self.selectable,
+            code_copy: self.code_copy,
         };
         let look = Look {
             color: theme::text().into(),
@@ -76,6 +91,7 @@ struct RenderContext {
     next_id: usize,
     /// Registers each piece of text for selection, in drawing order.
     selectable: Selectable,
+    code_copy: CodeCopy,
 }
 
 impl RenderContext {
@@ -162,9 +178,13 @@ impl RenderContext {
     }
 
     fn code(&mut self, language: Option<&str>, code: &str, highlights: &[Highlight]) -> AnyElement {
-        let copied = code.to_string();
+        let id = self.id();
+        let key = SharedString::from(format!("{}-{}", id.0, id.1));
+        let copied = self.code_copy.copied.as_ref() == Some(&key);
+        let on_copy = self.code_copy.on_copy.clone();
+        let code_text = code.to_string();
         let copy = div()
-            .id(self.id())
+            .id(id)
             .flex()
             .items_center()
             .gap_1()
@@ -172,11 +192,9 @@ impl RenderContext {
             .rounded_md()
             .cursor_pointer()
             .hover(|style| style.bg(theme::hover()))
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()))
-            })
-            .child(Icon::Copy.render(15., theme::text()))
-            .child("Copy");
+            .on_click(move |_, window, cx| on_copy(&(key.clone(), code_text.clone()), window, cx))
+            .child(if copied { Icon::Check } else { Icon::Copy }.render(15., theme::text()))
+            .child(if copied { "Copied" } else { "Copy" });
         // StickyHeader paints this header's background, so it covers the
         // code when pinned to the top of the chat.
         let header = div()
