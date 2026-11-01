@@ -30,11 +30,6 @@ cocoa = "=0.26.0"
 objc = "0.2"
 raw-window-handle = "0.6"
 
-[package.metadata.bundle]
-name = "Claude Companion"
-identifier = "dev.dylan.claude-companion"
-osx_minimum_system_version = "13.0"
-
 [lints.rust]
 # objc 0.2's msg_send! expands a `feature = "cargo-clippy"` check into our crate.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

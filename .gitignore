@@ -4,3 +4,4 @@
 .conductor/
 .codex/
 .DS_Store
+/dist

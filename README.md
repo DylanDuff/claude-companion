@@ -28,6 +28,18 @@ cargo run
 | ⌘N | New chat |
 | ⌘Q | Quit |
 
+### Install as an app
+
+```bash
+scripts/build-dmg.sh
+```
+
+This builds `dist/Claude-Companion-<version>.dmg`; open it and drag
+**Claude Companion** to Applications. The app is signed ad hoc, so it runs on
+the Mac that built it; sharing it without a Gatekeeper warning would need a
+Developer ID signature and notarization. To launch it at login, add it under
+System Settings → General → Login Items.
+
 Set `CLAUDE_COMPANION_CLI` if `claude` isn't in `~/.local/bin`,
 `/opt/homebrew/bin` or `/usr/local/bin`.
 

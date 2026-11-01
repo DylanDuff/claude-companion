@@ -89,7 +89,13 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 
 - `cargo run`. gpui uses `runtime_shaders`, so Xcode's Metal toolchain isn't
   needed (shaders compile at launch).
-- Bundle: `cargo bundle --release` (cargo-bundle, not yet installed).
+- Bundle: `scripts/build-dmg.sh` builds `dist/Claude Companion.app` and
+  `dist/Claude-Companion-<version>.dmg` using only macOS/Xcode tools. The
+  bundle identifier and minimum macOS live in that script; the version
+  comes from `Cargo.toml`. The app is signed ad hoc.
+- Icon: `assets/icon/AppIcon.png` (1024px), drawn by
+  `swift scripts/make-icon.swift assets/icon/AppIcon.png`. Edit the script,
+  not the PNG.
 - `CLAUDE_COMPANION_CLI` overrides the `claude` binary path; otherwise the
   usual install locations are checked, because Finder-launched apps lack the
   shell `PATH`.
