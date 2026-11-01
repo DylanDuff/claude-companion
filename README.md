@@ -8,7 +8,7 @@ you open it you start fresh.
 The companion can search and read the web (`WebSearch`, `WebFetch`) but has no
 other tools and no MCP servers. It defaults to Sonnet at low effort for quick
 replies. Change the model, effort, web tools, idle timeout, shortcut and
-click-away behaviour in settings (⌘,).
+click-away behaviour from the **Settings** button in the header.
 
 ## Run
 
@@ -24,7 +24,6 @@ cargo run
 | Enter | Send |
 | Esc | Hide |
 | ⌘N | New chat |
-| ⌘, | Settings |
 | ⌘Q | Quit |
 
 Set `CLAUDE_COMPANION_CLI` if `claude` isn't in `~/.local/bin`,

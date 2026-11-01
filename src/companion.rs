@@ -16,13 +16,12 @@ use crate::{
 
 const CONTEXT: &str = "Companion";
 
-actions!(companion, [Hide, NewChat, ToggleSettings]);
+actions!(companion, [Hide, NewChat]);
 
 pub fn key_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("escape", Hide, Some(CONTEXT)),
         KeyBinding::new("cmd-n", NewChat, Some(CONTEXT)),
-        KeyBinding::new("cmd-,", ToggleSettings, Some(CONTEXT)),
     ]
 }
 
@@ -183,12 +182,7 @@ impl Companion {
         }
     }
 
-    fn on_toggle_settings(
-        &mut self,
-        _: &ToggleSettings,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let view = match self.view {
             View::Chat => View::Settings,
             View::Settings => View::Chat,
@@ -507,26 +501,38 @@ fn tool_label(name: &str) -> SharedString {
 
 impl Render for Companion {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let hint = match self.view {
-            View::Chat => "esc to hide · ⌘N new chat · ⌘, settings",
-            View::Settings => "esc or ⌘, to go back",
+        let (hint, button_label) = match self.view {
+            View::Chat => ("esc to hide · ⌘N new chat", "Settings"),
+            View::Settings => ("esc to go back", "Back"),
         };
+        let settings_button = div()
+            .id("settings-button")
+            .px_2()
+            .py(px(2.))
+            .rounded_md()
+            .cursor_pointer()
+            .text_color(theme::text())
+            .bg(theme::surface())
+            .hover(|style| style.bg(theme::user_bubble()))
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_settings(window, cx)))
+            .child(button_label);
         let header = div()
-            .h(px(28.))
+            .h(px(32.))
             .flex_none()
             .flex()
             .items_center()
-            .justify_center()
+            .justify_between()
+            .px_3()
             .text_xs()
             .text_color(theme::muted_text())
-            .child(hint);
+            .child(hint)
+            .child(settings_button);
 
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_hide))
             .on_action(cx.listener(Self::on_new_chat))
-            .on_action(cx.listener(Self::on_toggle_settings))
             .size_full()
             .flex()
             .flex_col()

@@ -16,7 +16,7 @@
 4. On hide, an idle timer is armed. If the window is still hidden and no
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.
-5. ⌘N starts a new chat. ⌘, toggles settings. ⌘Q quits.
+5. ⌘N starts a new chat. The header button switches between chat and settings. ⌘Q quits.
 
 ## Persistence (`storage.rs`)
 
@@ -98,7 +98,7 @@ If the process exits on its own:
 
 ## Settings
 
-Opened with ⌘,. Each setting is a `Segmented<T: Choice>` control. The panel
+Opened with the header's Settings button (Esc or Back returns). Each setting is a `Segmented<T: Choice>` control. The panel
 edits a copy and emits `SettingsEvent::Changed`; `Companion` saves and
 applies it.
 

@@ -14,7 +14,7 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 - `src/state.rs`: `state.json` (conversation) and the idle-expiry rule.
 - `src/settings.rs`: `settings.json`; `choices!` declares each enum setting
   and its labels together. `src/storage.rs` handles shared file I/O.
-- `src/settings_panel.rs`, `src/segmented.rs`: settings view (⌘,). Every
+- `src/settings_panel.rs`, `src/segmented.rs`: settings view, opened from the header button. Every
   setting is a `Segmented<T: Choice>`, `bool` included.
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
