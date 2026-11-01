@@ -13,6 +13,7 @@ use crate::{
     highlight::Highlight,
     icon::Icon,
     markdown::{Block, Document, Inline, Marks},
+    scroll,
     theme,
 };
 
@@ -183,6 +184,20 @@ impl RenderContext {
                 (range.clone(), style)
             },
         ));
+        let body = scroll::contain_horizontal(
+            scroll::lock_axis(div().id(self.id()).flex().overflow_x_scroll()).child(
+                // A flex item that doesn't shrink keeps its natural width, so
+                // long lines overflow (and scroll) instead of being laid out
+                // to the container's width and clipped.
+                div()
+                    .flex_none()
+                    .font_family(MONOSPACE)
+                    .text_size(px(13.5))
+                    .line_height(px(21.))
+                    .whitespace_nowrap()
+                    .child(styled),
+            ),
+        );
         div()
             .rounded(px(14.))
             .bg(rgb(code_theme::BACKGROUND))
@@ -193,20 +208,7 @@ impl RenderContext {
             .flex_col()
             .gap_2()
             .child(header)
-            .child(
-                horizontal_scroll(self.id()).child(
-                    // A flex item that doesn't shrink keeps its natural width, so
-                    // long lines overflow (and scroll) instead of being laid out
-                    // to the container's width and clipped.
-                    div()
-                        .flex_none()
-                        .font_family(MONOSPACE)
-                        .text_size(px(13.5))
-                        .line_height(px(21.))
-                        .whitespace_nowrap()
-                        .child(styled),
-                ),
-            )
+            .child(body)
             .into_any_element()
     }
 
@@ -269,16 +271,6 @@ impl RenderContext {
             .on_click(ranges, move |index, _, cx| cx.open_url(&urls[index]))
             .into_any_element()
     }
-}
-
-/// A row that scrolls sideways and ignores vertical wheel movement. Without
-/// `restrict_scroll_to_axis`, gpui turns vertical scrolling over an x-only
-/// scroller into horizontal scrolling, so scrolling the chat past a code
-/// block would slide the code instead.
-fn horizontal_scroll(id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
-    let mut scroller = div().id(id).flex().overflow_x_scroll();
-    scroller.style().restrict_scroll_to_axis = Some(true);
-    scroller
 }
 
 /// Covers the whole text with runs: unmarked gaps in the base look, marked

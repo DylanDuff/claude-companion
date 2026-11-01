@@ -8,6 +8,7 @@ mod markdown;
 mod markdown_view;
 mod message_bubble;
 mod panel;
+mod scroll;
 mod segmented;
 mod settings;
 mod settings_panel;

@@ -14,6 +14,7 @@ use crate::{
     markdown::DocumentCache,
     message_bubble::MessageBubble,
     panel::{self, Panel, Placement},
+    scroll,
     settings::Settings,
     settings_panel::{SettingsEvent, SettingsPanel},
     state::{Role, State},
@@ -760,10 +761,7 @@ impl Companion {
             .as_ref()
             .map(|pending| render_pending(pending, &mut self.documents));
         self.documents.sweep();
-        div()
-            .id("transcript")
-            .flex_1()
-            .overflow_y_scroll()
+        scroll::lock_axis(div().id("transcript").flex_1().overflow_y_scroll())
             .track_scroll(&self.scroll)
             .px_6()
             .pt_6()
