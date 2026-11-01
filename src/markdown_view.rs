@@ -166,11 +166,13 @@ impl RenderContext {
             })
             .child(Icon::Copy.render(15., theme::text()))
             .child("Copy");
-        // Opaque, with its own top padding, so it covers the code when it is
-        // pinned to the top of the chat.
+        // Opaque, with its own padding and the card's top corners, so it
+        // covers the code when it is pinned to the top of the chat.
         let header = div()
+            .px_4()
             .pt_3()
             .pb_1()
+            .rounded_t(px(14.))
             .bg(rgb(code_theme::BACKGROUND))
             .flex()
             .items_center()
@@ -194,9 +196,13 @@ impl RenderContext {
             scroll::lock_axis(div().id(self.id()).flex().overflow_x_scroll()).child(
                 // A flex item that doesn't shrink keeps its natural width, so
                 // long lines overflow (and scroll) instead of being laid out
-                // to the container's width and clipped.
+                // to the container's width and clipped. The padding lives
+                // inside the scrolled content, so the code rests inset from
+                // the card's edges but scrolls all the way to them.
                 div()
                     .flex_none()
+                    .px_4()
+                    .pb_4()
                     .font_family(MONOSPACE)
                     .text_size(px(13.5))
                     .line_height(px(21.))
@@ -207,8 +213,6 @@ impl RenderContext {
         div()
             .rounded(px(14.))
             .bg(rgb(code_theme::BACKGROUND))
-            .px_4()
-            .pb_4()
             .child(StickyHeader::new(header, body, px(4.)))
             .into_any_element()
     }
