@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Floating chat window for Claude Code, toggled with a global hotkey"
 publish = false
+license = "MIT"
 
 [dependencies]
 # Image attachments are sent base64-encoded; already in the tree via gpui.

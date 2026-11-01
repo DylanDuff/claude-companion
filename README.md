@@ -35,3 +35,7 @@ Set `CLAUDE_COMPANION_CLI` if `claude` isn't in `~/.local/bin`,
 
 - [Architecture](docs/architecture.md): lifecycle, warm CLI process, turn
   states, settings, timings, known limitations.
+
+## License
+
+[MIT](LICENSE)
