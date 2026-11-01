@@ -14,14 +14,15 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 - `src/state.rs`: `state.json` (conversation) and the idle-expiry rule.
 - `src/settings.rs`: `settings.json`; `choices!` declares each enum setting
   and its labels together. `src/storage.rs` handles shared file I/O.
-- `src/settings_panel.rs`, `src/segmented.rs`: settings view, opened from the composer's sliders icon. Every
-  setting is a `Segmented<T: Choice>`, `bool` included.
+- `src/settings_panel.rs`, `src/segmented.rs`, `src/switch.rs`: settings
+  view (sections of `choice` rows with a `Segmented<T: Choice>` and `toggle`
+  rows with a `Switch`), opened from the composer's sliders icon.
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
 - `src/markdown.rs` (parse to blocks, `DocumentCache`), `src/markdown_view.rs`
   (render), `src/highlight.rs` (syntect): assistant replies as Markdown.
-- `src/panel.rs`: native NSPanel work (borderless rounded style, top-anchored
-  resize, show/hide). `src/icon.rs`: embedded SVG icons (`icons!`) and
+- `src/panel.rs`: native NSPanel work (borderless rounded style,
+  bottom-anchored resize, show/hide, drag) and `Placement` (`window.json`). `src/icon.rs`: embedded SVG icons (`icons!`) and
   `IconButton`.
 - `src/message_bubble.rs`, `src/theme.rs`: presentation only. Theme colours
   are translucent because the window background is `Blurred`.

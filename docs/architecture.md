@@ -37,8 +37,10 @@
 
 - **Compact** (no conversation, chat view): the panel is just the composer,
   `COMPACT_HEIGHT` tall.
-- **Expanded** (any message, or settings open): transcript above, composer
-  as an inset card below, `EXPANDED_HEIGHT` tall.
+- **Expanded** (any message): transcript above, composer as an inset card
+  below, `EXPANDED_HEIGHT` tall.
+- **Settings**: `SETTINGS_HEIGHT` (720), tall enough to show every section
+  without scrolling.
 - `sync_height` runs on every notify (`observe_self`) and resizes only on
   change, from a spawned task holding the stored `Panel`. AppKit reports a
   resize to gpui synchronously, and gpui silently drops that report if the
@@ -79,6 +81,12 @@
   the input's mouse-down: gpui runs an element's listeners in reverse, so
   that also cancels the input's own click-to-focus.) gpui's `start_window_move` is a no-op
   on macOS, hence the native call.
+- **Remembered position:** the panel's bottom-left corner (AppKit
+  coordinates, since the bottom edge is what stays put) is saved to
+  `window.json` 400ms after it stops moving (`observe_window_bounds`,
+  debounced). At launch `Panel::restore` puts it back, but only if a
+  connected screen's visible frame still contains it, so an unplugged
+  display can't strand the panel off screen.
 - Icons are hand-drawn 24×24 stroke SVGs in `assets/icons/`, compiled in by
   the `icons!` macro and rendered with `svg()` (tinted by text colour).
 
@@ -162,9 +170,19 @@ If the process exits on its own:
 
 ## Settings
 
-Opened with the header's Settings button (Esc or Back returns). Each setting is a `Segmented<T: Choice>` control. The panel
-edits a copy and emits `SettingsEvent::Changed`; `Companion` saves and
-applies it.
+Opened from the composer's sliders icon; the header's back chevron or Esc
+returns. The panel edits a copy and emits `SettingsEvent::Changed`;
+`Companion` saves and applies it.
+
+Layout (`settings_panel.rs`): titled sections (Claude, Web, Window), each a
+rounded card like the composer, with hairline dividers between rows and an
+optional note underneath (muted, or red for a shortcut that couldn't be
+registered). There are two kinds of row, both built by helpers that bind one
+`Settings` field via `on_change`:
+
+- `choice`: label above a full-width `Segmented<T: Choice>` (neutral track,
+  equal-width segments, the selected one lifted).
+- `toggle`: label and description on the left, a `Switch` on the right.
 
 | Setting | Values (default **bold**) | Applies |
 | --- | --- | --- |
@@ -175,9 +193,9 @@ applies it.
 | Shortcut | **⌥Space**, ⌃Space, ⌥⇧Space, ⌘⇧Space | at once. The new key is registered before the old one is released; on failure the old one stays and the panel shows why |
 | Hide when clicking away | **On** / Off | at once |
 
-To add an enum setting, declare it with `choices!` in `settings.rs`, add the
-field to `Settings` and its `Default`, and add one `self.setting(…)` line in
-`settings_panel.rs`.
+To add a setting, add the field to `Settings` and its `Default` (enums via
+`choices!`), then add a `Self::choice(…)` or `Self::toggle(…)` row to a
+section in `settings_panel.rs`.
 
 ## Text input (`text_input.rs`)
 
