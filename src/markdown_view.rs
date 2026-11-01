@@ -20,6 +20,7 @@ use crate::{
 };
 
 pub const MONOSPACE: &str = "Menlo";
+const CODE_RADIUS: f32 = 14.;
 const SYSTEM: &str = ".SystemUIFont";
 
 #[derive(IntoElement)]
@@ -176,14 +177,12 @@ impl RenderContext {
             })
             .child(Icon::Copy.render(15., theme::text()))
             .child("Copy");
-        // Opaque, with its own padding and the card's top corners, so it
-        // covers the code when it is pinned to the top of the chat.
+        // StickyHeader paints this header's background, so it covers the
+        // code when pinned to the top of the chat.
         let header = div()
             .px_4()
             .pt_3()
             .pb_1()
-            .rounded_t(px(14.))
-            .bg(rgb(code_theme::BACKGROUND))
             .flex()
             .items_center()
             .justify_between()
@@ -213,9 +212,15 @@ impl RenderContext {
             ),
         );
         div()
-            .rounded(px(14.))
+            .rounded(px(CODE_RADIUS))
             .bg(rgb(code_theme::BACKGROUND))
-            .child(StickyHeader::new(header, body, px(4.)))
+            .child(StickyHeader::new(
+                header,
+                body,
+                px(4.),
+                rgb(code_theme::BACKGROUND),
+                px(CODE_RADIUS),
+            ))
             .into_any_element()
     }
 
