@@ -33,14 +33,17 @@ impl MessageBubble {
 impl RenderOnce for MessageBubble {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let row = div().flex().w_full();
-        let bubble = div().text_sm().line_height(px(20.)).child(self.content);
+        let bubble = div()
+            .text_size(px(15.))
+            .line_height(px(23.))
+            .child(self.content);
         match self.role {
             Role::User => row.justify_end().child(
                 bubble
-                    .max_w(px(360.))
-                    .px_3()
+                    .max_w(px(320.))
+                    .px_4()
                     .py_2()
-                    .rounded_lg()
+                    .rounded(px(18.))
                     .bg(theme::user_bubble()),
             ),
             Role::Assistant => row.child(bubble.w_full().min_w_0()),

@@ -2,6 +2,7 @@ mod claude;
 mod companion;
 mod highlight;
 mod hotkey;
+mod icon;
 mod markdown;
 mod markdown_view;
 mod message_bubble;
@@ -15,8 +16,8 @@ mod text_input;
 mod theme;
 
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WindowBackgroundAppearance,
-    WindowBounds, WindowKind, WindowOptions, actions, px, size,
+    App, AppContext, Application, Bounds, KeyBinding, WindowBackgroundAppearance, WindowBounds,
+    WindowKind, WindowOptions, actions, px, size,
 };
 
 use crate::{companion::Companion, settings::Settings};
@@ -24,39 +25,43 @@ use crate::{companion::Companion, settings::Settings};
 actions!(app, [Quit]);
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
-        hide_from_dock();
-        highlight::preload();
+    Application::new()
+        .with_assets(icon::Assets)
+        .run(|cx: &mut App| {
+            hide_from_dock();
+            highlight::preload();
 
-        cx.bind_keys(text_input::key_bindings());
-        cx.bind_keys(companion::key_bindings());
-        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-        cx.on_action(|_: &Quit, cx| cx.quit());
+            cx.bind_keys(text_input::key_bindings());
+            cx.bind_keys(companion::key_bindings());
+            cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+            cx.on_action(|_: &Quit, cx| cx.quit());
 
-        let settings = Settings::load();
-        let hotkey = settings.hotkey;
-        let window = cx
-            .open_window(window_options(cx), |window, cx| {
-                cx.new(|cx| Companion::new(settings, window, cx))
-            })
-            .expect("failed to open the companion window");
-        window
-            .update(cx, |companion, window, cx| companion.show(window, cx))
-            .ok();
+            let settings = Settings::load();
+            let hotkey = settings.hotkey;
+            let window = cx
+                .open_window(window_options(cx), |window, cx| {
+                    cx.new(|cx| Companion::new(settings, window, cx))
+                })
+                .expect("failed to open the companion window");
+            window
+                .update(cx, |companion, window, cx| {
+                    panel::configure(window);
+                    companion.show(window, cx);
+                })
+                .ok();
 
-        hotkey::init(hotkey, window, cx);
-    });
+            hotkey::init(hotkey, window, cx);
+        });
 }
 
 fn window_options(cx: &App) -> WindowOptions {
-    let bounds = Bounds::centered(None, size(px(480.), px(560.)), cx);
+    // Starts at the expanded size; the companion shrinks it to the compact
+    // bar on first render when there's no conversation, keeping the top edge.
+    let bounds = Bounds::centered(None, size(px(440.), px(540.)), cx);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        titlebar: Some(TitlebarOptions {
-            title: Some("Claude Companion".into()),
-            appears_transparent: true,
-            traffic_light_position: None,
-        }),
+        // No title bar; `panel::configure` also drops the frame entirely.
+        titlebar: None,
         kind: WindowKind::PopUp,
         is_resizable: false,
         is_minimizable: false,

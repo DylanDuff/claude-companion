@@ -1,17 +1,19 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, Context, Entity, FocusHandle, Focusable, KeyBinding, ScrollHandle, SharedString,
-    Subscription, Task, Window, actions, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding, ScrollHandle,
+    SharedString, Subscription, Task, Window, actions, div, prelude::*, px,
 };
+use smol::io::AsyncWriteExt;
 
 use crate::{
     claude::{self, Event},
     hotkey,
+    icon::{Icon, IconButton},
     markdown::DocumentCache,
     message_bubble::MessageBubble,
     panel,
-    settings::{Choice, Settings},
+    settings::Settings,
     settings_panel::{SettingsEvent, SettingsPanel},
     state::{Role, State},
     text_input::{Submit, TextInput},
@@ -22,6 +24,14 @@ const CONTEXT: &str = "Companion";
 
 /// How long focus must stay elsewhere before hide-on-blur hides the panel.
 const BLUR_GRACE: Duration = Duration::from_millis(150);
+
+/// Panel height with no conversation: just the composer.
+const COMPACT_HEIGHT: f32 = 96.;
+/// Panel height once there is a conversation or the settings are open.
+const EXPANDED_HEIGHT: f32 = 540.;
+
+/// How long a Copy button shows its tick.
+const COPIED_FEEDBACK: Duration = Duration::from_millis(1500);
 
 actions!(companion, [Hide, NewChat]);
 
@@ -46,6 +56,13 @@ struct Pending {
 struct Session {
     _reader: Task<()>,
     process: claude::Process,
+}
+
+/// A reply being read aloud by `say`. Dropping it stops the speech.
+struct Speech {
+    /// Transcript index of the reply.
+    index: usize,
+    _task: Task<()>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -76,16 +93,24 @@ pub struct Companion {
     focus_handle: FocusHandle,
     scroll: ScrollHandle,
     documents: DocumentCache,
+    speech: Option<Speech>,
+    /// Transcript index of the reply whose Copy button shows a tick.
+    copied: Option<usize>,
+    copied_reset: Option<Task<()>>,
+    /// The panel height last requested, so it is only resized on change.
+    height: Option<f32>,
     visible: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl Companion {
     pub fn new(settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| TextInput::new("Ask Claude…", cx));
+        let input = cx.new(|cx| TextInput::new("Ask anything", cx));
         let settings_panel = cx.new(|_| SettingsPanel::new(settings.clone()));
         let subscriptions = vec![
             cx.subscribe_in(&input, window, |this, _, _: &Submit, _, cx| this.submit(cx)),
+            // Re-render as the text changes, so the send button follows it.
+            cx.observe(&input, |_, _, cx| cx.notify()),
             cx.subscribe_in(
                 &settings_panel,
                 window,
@@ -116,6 +141,10 @@ impl Companion {
             focus_handle: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             documents: DocumentCache::default(),
+            speech: None,
+            copied: None,
+            copied_reset: None,
+            height: None,
             visible: false,
             _subscriptions: subscriptions,
         }
@@ -219,6 +248,11 @@ impl Companion {
     }
 
     fn on_new_chat(&mut self, _: &NewChat, _: &mut Window, cx: &mut Context<Self>) {
+        self.new_chat(cx);
+    }
+
+    fn new_chat(&mut self, cx: &mut Context<Self>) {
+        self.speech = None;
         self.session = None;
         self.pending = None;
         self.unsettled = false;
@@ -251,6 +285,20 @@ impl Companion {
             self.restart_when_idle = true;
             self.restart_if_idle(cx);
         }
+    }
+
+    /// Switches web search and page reading together: off if either is on.
+    fn toggle_web(&mut self, cx: &mut Context<Self>) {
+        let enabled = !(self.settings.web_search || self.settings.web_fetch);
+        let settings = Settings {
+            web_search: enabled,
+            web_fetch: enabled,
+            ..self.settings.clone()
+        };
+        self.settings_panel
+            .update(cx, |panel, cx| panel.reset(settings.clone(), None, cx));
+        self.apply_settings(settings, cx);
+        cx.notify();
     }
 
     /// Applies pending CLI flag changes by restarting Claude on the same
@@ -298,18 +346,47 @@ impl Companion {
         }
     }
 
+    fn can_send(&self, cx: &gpui::App) -> bool {
+        self.pending.is_none() && !self.input.read(cx).text().trim().is_empty()
+    }
+
     fn submit(&mut self, cx: &mut Context<Self>) {
-        if self.pending.is_some() || self.input.read(cx).text().trim().is_empty() {
-            return;
-        }
-        if !self.ensure_session(cx) {
+        if !self.can_send(cx) {
             return;
         }
         let prompt = self.input.update(cx, |input, cx| input.take(cx));
         let prompt = prompt.trim();
         self.state.push(Role::User, prompt);
         self.save();
+        self.dispatch(prompt, cx);
+    }
 
+    /// Asks again for the reply at `index`: drops it and re-sends the user
+    /// message before it. The session still holds the earlier answer, so
+    /// Claude sees this as a follow-up rather than a rewind.
+    fn retry(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.is_busy() {
+            return;
+        }
+        let transcript = &mut self.state.transcript;
+        let Some(question) = transcript[..index]
+            .iter()
+            .rposition(|message| message.role == Role::User)
+        else {
+            return;
+        };
+        let prompt = transcript[question].text.clone();
+        transcript.truncate(question + 1);
+        self.speech = None;
+        self.save();
+        self.dispatch(&prompt, cx);
+    }
+
+    /// Sends `prompt` to the running session, starting one if needed.
+    fn dispatch(&mut self, prompt: &str, cx: &mut Context<Self>) {
+        if !self.ensure_session(cx) {
+            return;
+        }
         let session = self.session.as_mut().expect("session was just ensured");
         if let Err(error) = session.process.send(prompt) {
             self.session = None;
@@ -446,70 +523,233 @@ impl Companion {
         }
     }
 
-    fn render_chat(&mut self) -> AnyElement {
-        if self.state.transcript.is_empty() && self.pending.is_none() {
-            return div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_sm()
-                .text_color(theme::muted_text())
-                .child(format!(
-                    "Conversations reset after {} idle.",
-                    self.settings.session_timeout.label()
-                ))
-                .into_any_element();
-        }
-        let documents = &mut self.documents;
-        let messages: Vec<MessageBubble> = self
-            .state
-            .transcript
-            .iter()
-            .enumerate()
-            .map(|(index, message)| match message.role {
-                Role::Assistant => MessageBubble::markdown(
-                    format!("message-{index}"),
-                    documents.get(&message.text),
-                ),
-                role => MessageBubble::text(role, message.text.clone()),
+    fn copy_reply(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(message) = self.state.transcript.get(index) else {
+            return;
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(message.text.clone()));
+        self.copied = Some(index);
+        self.copied_reset = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(COPIED_FEEDBACK).await;
+            this.update(cx, |companion, cx| {
+                companion.copied = None;
+                cx.notify();
             })
-            .collect();
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Reads the reply at `index` aloud with macOS `say`, or stops it if it
+    /// is already being read.
+    fn toggle_speech(&mut self, index: usize, cx: &mut Context<Self>) {
+        let already_speaking = self
+            .speech
+            .as_ref()
+            .is_some_and(|speech| speech.index == index);
+        self.speech = None;
+        if already_speaking {
+            cx.notify();
+            return;
+        }
+        let Some(message) = self.state.transcript.get(index) else {
+            return;
+        };
+        let text = self.documents.get(&message.text).plain_text();
+        let child = smol::process::Command::new("/usr/bin/say")
+            .args(["-f", "-"])
+            .stdin(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn();
+        let mut child = match child {
+            Ok(child) => child,
+            Err(error) => {
+                eprintln!("claude-companion: couldn't start say: {error}");
+                return;
+            }
+        };
+        let task = cx.spawn(async move |this, cx| {
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(text.as_bytes()).await.ok();
+            }
+            child.status().await.ok();
+            this.update(cx, |companion, cx| {
+                if companion
+                    .speech
+                    .as_ref()
+                    .is_some_and(|speech| speech.index == index)
+                {
+                    companion.speech = None;
+                    cx.notify();
+                }
+            })
+            .ok();
+        });
+        self.speech = Some(Speech { index, _task: task });
+        cx.notify();
+    }
+
+    fn is_compact(&self) -> bool {
+        self.view == View::Chat && self.state.transcript.is_empty() && self.pending.is_none()
+    }
+
+    /// Resizes the panel when switching between compact and expanded.
+    fn sync_height(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let height = if self.is_compact() {
+            COMPACT_HEIGHT
+        } else {
+            EXPANDED_HEIGHT
+        };
+        if self.height == Some(height) {
+            return;
+        }
+        self.height = Some(height);
+        // Resizing re-enters layout, so do it after this frame.
+        cx.defer_in(window, move |_, window, _| {
+            panel::set_height(window, height)
+        });
+    }
+
+    fn render_reply_actions(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let copied = self.copied == Some(index);
+        let speaking = self
+            .speech
+            .as_ref()
+            .is_some_and(|speech| speech.index == index);
+        let is_latest = index + 1 == self.state.transcript.len();
+        div()
+            .flex()
+            .gap_1()
+            .ml(px(-6.))
+            .child(
+                IconButton::new(
+                    ("copy-reply", index),
+                    if copied { Icon::Check } else { Icon::Copy },
+                )
+                .small()
+                .on_click(cx.listener(move |this, _, _, cx| this.copy_reply(index, cx))),
+            )
+            .child(
+                IconButton::new(
+                    ("speak-reply", index),
+                    if speaking { Icon::Stop } else { Icon::Speaker },
+                )
+                .small()
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_speech(index, cx))),
+            )
+            .when(is_latest && !self.is_busy(), |this| {
+                this.child(
+                    IconButton::new(("retry-reply", index), Icon::Retry)
+                        .small()
+                        .on_click(cx.listener(move |this, _, _, cx| this.retry(index, cx))),
+                )
+            })
+    }
+
+    fn render_chat(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let mut messages = Vec::with_capacity(self.state.transcript.len());
+        for (index, message) in self.state.transcript.iter().enumerate() {
+            let element = match message.role {
+                Role::Assistant => div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(MessageBubble::markdown(
+                        format!("message-{index}"),
+                        self.documents.get(&message.text),
+                    ))
+                    .child(self.render_reply_actions(index, cx))
+                    .into_any_element(),
+                role => MessageBubble::text(role, message.text.clone()).into_any_element(),
+            };
+            messages.push(element);
+        }
         let pending = self
             .pending
             .as_ref()
-            .map(|pending| render_pending(pending, documents));
-        documents.sweep();
+            .map(|pending| render_pending(pending, &mut self.documents));
+        self.documents.sweep();
         div()
             .id("transcript")
             .flex_1()
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
-            .px_4()
-            .py_3()
+            .px_6()
+            .pt_6()
+            .pb_3()
             .flex()
             .flex_col()
-            .gap_3()
+            .gap_5()
             .children(messages)
             .children(pending)
             .into_any_element()
     }
 
-    fn render_composer(&self) -> impl IntoElement {
+    fn render_composer(&self, compact: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let web_on = self.settings.web_search || self.settings.web_fetch;
+        let ready = self.can_send(cx);
+        let send = IconButton::new("send", Icon::ArrowUp)
+            .when(ready, |this| {
+                this.background(theme::send_ready())
+                    .color(theme::send_ready_icon())
+            })
+            .when(!ready, |this| {
+                this.background(theme::send_idle())
+                    .color(theme::muted_text())
+            })
+            .on_click(cx.listener(|this, _, _, cx| this.submit(cx)));
+        let tools = div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(
+                IconButton::new("new-chat", Icon::Plus)
+                    .on_click(cx.listener(|this, _, _, cx| this.new_chat(cx))),
+            )
+            .child(
+                IconButton::new("toggle-web", Icon::Globe)
+                    .color(if web_on {
+                        theme::link().into()
+                    } else {
+                        theme::muted_text()
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_web(cx))),
+            )
+            .child(
+                IconButton::new("open-settings", Icon::Settings)
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_settings(window, cx))),
+            );
+
         div()
             .flex_none()
-            .p_3()
-            .border_t_1()
-            .border_color(theme::border())
+            .flex()
+            .flex_col()
+            .gap_1()
+            .when(compact, |this| this.size_full().justify_between())
+            .when(!compact, |this| {
+                this.m_3()
+                    .rounded(px(20.))
+                    .bg(theme::surface())
+                    .border_1()
+                    .border_color(theme::window_border())
+            })
             .child(
                 div()
-                    .px_3()
-                    .py_2()
-                    .rounded_lg()
-                    .bg(theme::surface())
-                    .text_sm()
-                    .line_height(px(20.))
+                    .px_4()
+                    .pt_4()
+                    .text_size(px(16.))
+                    .line_height(px(22.))
                     .child(self.input.clone()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_2()
+                    .pb_2()
+                    .child(tools)
+                    .child(send),
             )
     }
 }
@@ -542,33 +782,21 @@ fn tool_label(name: &str) -> SharedString {
 }
 
 impl Render for Companion {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (hint, button_label) = match self.view {
-            View::Chat => ("esc to hide · ⌘N new chat", "Settings"),
-            View::Settings => ("esc to go back", "Back"),
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_height(window, cx);
+        let compact = self.is_compact();
+        let content = match self.view {
+            View::Settings => self.settings_panel.clone().into_any_element(),
+            View::Chat if compact => self.render_composer(true, cx).into_any_element(),
+            View::Chat => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(self.render_chat(cx))
+                .child(self.render_composer(false, cx))
+                .into_any_element(),
         };
-        let settings_button = div()
-            .id("settings-button")
-            .px_2()
-            .py(px(2.))
-            .rounded_md()
-            .cursor_pointer()
-            .text_color(theme::text())
-            .bg(theme::surface())
-            .hover(|style| style.bg(theme::user_bubble()))
-            .on_click(cx.listener(|this, _, window, cx| this.toggle_settings(window, cx)))
-            .child(button_label);
-        let header = div()
-            .h(px(32.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_between()
-            .px_3()
-            .text_xs()
-            .text_color(theme::muted_text())
-            .child(hint)
-            .child(settings_button);
 
         div()
             .key_context(CONTEXT)
@@ -578,12 +806,11 @@ impl Render for Companion {
             .size_full()
             .flex()
             .flex_col()
+            .rounded(px(panel::CORNER_RADIUS))
+            .border_1()
+            .border_color(theme::window_border())
             .bg(theme::background())
             .text_color(theme::text())
-            .child(header)
-            .map(|this| match self.view {
-                View::Chat => this.child(self.render_chat()).child(self.render_composer()),
-                View::Settings => this.child(self.settings_panel.clone()),
-            })
+            .child(content)
     }
 }

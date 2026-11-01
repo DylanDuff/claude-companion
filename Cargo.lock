@@ -852,6 +852,7 @@ dependencies = [
 name = "claude-companion"
 version = "0.1.0"
 dependencies = [
+ "cocoa 0.26.0",
  "global-hotkey",
  "gpui",
  "objc",

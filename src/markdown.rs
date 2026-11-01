@@ -429,6 +429,45 @@ pub fn parse(source: &str) -> Document {
     builder.finish()
 }
 
+impl Document {
+    /// The document as plain prose for reading aloud. Code blocks are left
+    /// out, since spoken code is rarely useful.
+    pub fn plain_text(&self) -> String {
+        let mut out = String::new();
+        append_plain(&self.blocks, &mut out);
+        out.trim().to_string()
+    }
+}
+
+fn append_plain(blocks: &[Block], out: &mut String) {
+    for block in blocks {
+        match block {
+            Block::Paragraph(inline)
+            | Block::Heading {
+                content: inline, ..
+            } => {
+                out.push_str(&inline.text);
+                out.push_str("\n\n");
+            }
+            Block::List { items, .. } => {
+                for item in items {
+                    append_plain(item, out);
+                }
+            }
+            Block::Quote(blocks) => append_plain(blocks, out),
+            Block::Table { header, rows } => {
+                for cells in std::iter::once(header).chain(rows) {
+                    let cells: Vec<&str> = cells.iter().map(|cell| cell.text.as_str()).collect();
+                    out.push_str(&cells.join(", "));
+                    out.push_str(".\n");
+                }
+                out.push('\n');
+            }
+            Block::Code { .. } | Block::Rule => {}
+        }
+    }
+}
+
 /// Parsed documents keyed by source text, so each message is parsed and
 /// highlighted once rather than every frame. Entries not requested since
 /// the last [`DocumentCache::sweep`] are dropped then.
@@ -542,5 +581,11 @@ mod tests {
         };
         assert_eq!(header.len(), 2);
         assert_eq!(rows[0][1].text, "2");
+    }
+
+    #[test]
+    fn plain_text_skips_code() {
+        let document = parse("# Title\n\nSome **bold** text.\n\n```sh\nls\n```\n- item");
+        assert_eq!(document.plain_text(), "Title\n\nSome bold text.\n\nitem");
     }
 }
