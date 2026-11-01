@@ -60,6 +60,13 @@ const DRAG_THRESHOLD: f32 = 4.;
 /// How long the panel must stay put before its position is saved.
 const PLACEMENT_SAVE_DELAY: Duration = Duration::from_millis(400);
 
+/// While drag-selecting, the chat scrolls when the pointer is this close to
+/// its top or bottom edge (or past it).
+const AUTOSCROLL_ZONE: f32 = 28.;
+/// Fastest auto-scroll, in points per step.
+const AUTOSCROLL_MAX_STEP: f32 = 24.;
+const AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(16);
+
 /// How long a Copy button shows its tick.
 const COPIED_FEEDBACK: Duration = Duration::from_millis(1500);
 
@@ -148,6 +155,10 @@ pub struct Companion {
     selection: Option<Selection>,
     /// The left button went down on text and is extending `selection`.
     selecting: bool,
+    /// Last pointer position while selecting, for auto-scroll.
+    pointer: Point<Pixels>,
+    /// Scrolls the chat while a selection is dragged to its edge.
+    autoscroll: Option<Task<()>>,
     visible: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -213,6 +224,8 @@ impl Companion {
             text_registry: TextRegistry::default(),
             selection: None,
             selecting: false,
+            pointer: Point::default(),
+            autoscroll: None,
             visible: false,
             _subscriptions: subscriptions,
         }
@@ -823,12 +836,12 @@ impl Companion {
         if self.selecting {
             if event.pressed_button != Some(MouseButton::Left) {
                 self.selecting = false;
-            } else if let Some(selection) = self.selection.as_mut()
-                && let Some(head) = self.text_registry.nearest(event.position)
-                && selection.head != head
-            {
-                selection.head = head;
-                cx.notify();
+                return;
+            }
+            self.pointer = event.position;
+            self.extend_selection(cx);
+            if self.autoscroll_step() != 0. && self.autoscroll.is_none() {
+                self.start_autoscroll(cx);
             }
             return;
         }
@@ -846,6 +859,70 @@ impl Companion {
                 panel.begin_drag();
             }
         }
+    }
+
+    /// Moves the selection's head to the text nearest the pointer.
+    fn extend_selection(&mut self, cx: &mut Context<Self>) {
+        if let Some(selection) = self.selection.as_mut()
+            && let Some(head) = self.text_registry.nearest(self.pointer)
+            && selection.head != head
+        {
+            selection.head = head;
+            cx.notify();
+        }
+    }
+
+    /// How far to scroll the chat this step for the current pointer:
+    /// negative scrolls up, 0 when the pointer isn't near an edge. Faster
+    /// the deeper the pointer is in the edge zone.
+    fn autoscroll_step(&self) -> f32 {
+        let bounds = self.scroll.bounds();
+        let zone = px(AUTOSCROLL_ZONE);
+        let y = self.pointer.y;
+        let depth = if y < bounds.top() + zone {
+            -f32::from(bounds.top() + zone - y)
+        } else if y > bounds.bottom() - zone {
+            f32::from(y - (bounds.bottom() - zone))
+        } else {
+            return 0.;
+        };
+        (depth / 2.).clamp(-AUTOSCROLL_MAX_STEP, AUTOSCROLL_MAX_STEP)
+    }
+
+    /// Scrolls the chat every frame while a selection is held at its edge,
+    /// extending the selection with it. Stops when the pointer leaves the
+    /// edge or the button is released, even outside the panel, where gpui
+    /// sends no mouse-up.
+    fn start_autoscroll(&mut self, cx: &mut Context<Self>) {
+        self.autoscroll = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(AUTOSCROLL_INTERVAL).await;
+                let keep_going = this
+                    .update(cx, |companion, cx| {
+                        if !companion.selecting || !Panel::left_button_down() {
+                            companion.selecting = false;
+                            return false;
+                        }
+                        let step = companion.autoscroll_step();
+                        if step == 0. {
+                            return false;
+                        }
+                        let max = companion.scroll.max_offset().height;
+                        let mut offset = companion.scroll.offset();
+                        offset.y = (offset.y - px(step)).clamp(-max, px(0.));
+                        companion.scroll.set_offset(offset);
+                        companion.extend_selection(cx);
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+            this.update(cx, |companion, _| companion.autoscroll = None)
+                .ok();
+        }));
     }
 
     fn is_compact(&self) -> bool {

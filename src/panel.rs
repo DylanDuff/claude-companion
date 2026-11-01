@@ -115,6 +115,13 @@ mod native {
             }
         }
 
+        /// Whether the left mouse button is physically down, including when
+        /// it was released outside the panel and gpui never saw the release.
+        pub fn left_button_down() -> bool {
+            let buttons: usize = unsafe { msg_send![class!(NSEvent), pressedMouseButtons] };
+            buttons & 1 == 1
+        }
+
         /// Resizes to `height`, keeping the bottom edge where it is, so the
         /// panel grows upward from where the composer sits (typically near
         /// the bottom of the screen). If that would push the top past the
@@ -236,6 +243,10 @@ impl Panel {
     pub fn set_corner_radius(self, _radius: f32) {}
 
     pub fn activate_app() {}
+
+    pub fn left_button_down() -> bool {
+        false
+    }
 
     pub fn set_height(self, _height: f32) {}
 
