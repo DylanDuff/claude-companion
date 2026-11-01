@@ -13,7 +13,7 @@ use crate::{
     icon::{Icon, IconButton},
     markdown::DocumentCache,
     message_bubble::MessageBubble,
-    panel,
+    panel::{self, Panel},
     settings::Settings,
     settings_panel::{SettingsEvent, SettingsPanel},
     state::{Role, State},
@@ -102,6 +102,8 @@ pub struct Companion {
     /// Transcript index of the reply whose Copy button shows a tick.
     copied: Option<usize>,
     copied_reset: Option<Task<()>>,
+    /// The native panel, configured once at creation.
+    panel: Option<Panel>,
     /// The panel height last requested, so it is only resized on change.
     height: Option<f32>,
     /// Where the left button went down, while a window drag may still start.
@@ -114,10 +116,17 @@ impl Companion {
     pub fn new(settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextInput::new("Ask anything", cx));
         let settings_panel = cx.new(|_| SettingsPanel::new(settings.clone()));
+        let panel = Panel::new(window);
+        if let Some(panel) = panel {
+            panel.configure();
+        }
         let subscriptions = vec![
             cx.subscribe_in(&input, window, |this, _, _: &Submit, _, cx| this.submit(cx)),
             // Re-render as the text changes, so the send button follows it.
             cx.observe(&input, |_, _, cx| cx.notify()),
+            // Every state change notifies; resize then, before the frame is
+            // drawn, so the new layout never appears at the old size.
+            cx.observe_self(|this, cx| this.sync_height(cx)),
             cx.subscribe_in(
                 &settings_panel,
                 window,
@@ -151,6 +160,7 @@ impl Companion {
             speech: None,
             copied: None,
             copied_reset: None,
+            panel,
             height: None,
             drag_origin: None,
             visible: false,
@@ -183,19 +193,29 @@ impl Companion {
         self.ensure_session(cx);
         self.visible = true;
         self.blur_check = None;
-        panel::show(window);
+        if self.panel.is_none() {
+            self.panel = Panel::new(window);
+            if let Some(panel) = self.panel {
+                panel.configure();
+            }
+        }
+        if let Some(panel) = self.panel {
+            panel.show();
+        }
         self.focus_view(window, cx);
         self.scroll.scroll_to_bottom();
         cx.notify();
     }
 
-    fn hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn hide(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.visible {
             return;
         }
         self.visible = false;
         self.blur_check = None;
-        panel::hide(window);
+        if let Some(panel) = self.panel {
+            panel.hide();
+        }
         self.schedule_idle_shutdown(cx);
     }
 
@@ -597,29 +617,37 @@ impl Companion {
         cx.notify();
     }
 
-    fn on_mouse_down(&mut self, event: &MouseDownEvent, _: &mut Window, _: &mut Context<Self>) {
+    fn on_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.drag_origin = Some(event.position);
+        // In the chat, keystrokes always belong to the input: keep focus
+        // there instead of letting the panel's root take it on click.
+        if self.view == View::Chat {
+            window.focus(&self.input.read(cx).focus_handle(cx));
+            window.prevent_default();
+        }
     }
 
     /// Moves the panel once a press anywhere on it (except the text input,
     /// which keeps drags for selection) has moved past the threshold.
-    fn on_mouse_move(
-        &mut self,
-        event: &MouseMoveEvent,
-        window: &mut Window,
-        _: &mut Context<Self>,
-    ) {
+    fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         let Some(origin) = self.drag_origin else {
             return;
         };
-        if event.pressed_button != Some(MouseButton::Left) {
+        if event.pressed_button != Some(MouseButton::Left) || self.input.read(cx).is_selecting() {
             self.drag_origin = None;
             return;
         }
         let moved = event.position - origin;
         if moved.x.abs() > px(DRAG_THRESHOLD) || moved.y.abs() > px(DRAG_THRESHOLD) {
             self.drag_origin = None;
-            panel::begin_drag(window);
+            if let Some(panel) = self.panel {
+                panel.begin_drag();
+            }
         }
     }
 
@@ -628,7 +656,7 @@ impl Companion {
     }
 
     /// Resizes the panel when switching between compact and expanded.
-    fn sync_height(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn sync_height(&mut self, cx: &mut Context<Self>) {
         let height = if self.is_compact() {
             COMPACT_HEIGHT
         } else {
@@ -637,11 +665,13 @@ impl Companion {
         if self.height == Some(height) {
             return;
         }
+        let Some(panel) = self.panel else {
+            return;
+        };
         self.height = Some(height);
-        // Resizing re-enters layout, so do it after this frame.
-        cx.defer_in(window, move |_, window, _| {
-            panel::set_height(window, height)
-        });
+        // AppKit reports the resize synchronously; deferring to an app-level
+        // callback means no window update is running, so gpui receives it.
+        cx.defer(move |_| panel.set_height(height));
     }
 
     fn render_reply_actions(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
@@ -816,8 +846,10 @@ fn tool_label(name: &str) -> SharedString {
 }
 
 impl Render for Companion {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_height(window, cx);
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Normally already done by `observe_self`; this catches the first
+        // frame.
+        self.sync_height(cx);
         let compact = self.is_compact();
         let content = match self.view {
             View::Settings => self.settings_panel.clone().into_any_element(),

@@ -44,10 +44,7 @@ fn main() {
                 })
                 .expect("failed to open the companion window");
             window
-                .update(cx, |companion, window, cx| {
-                    panel::configure(window);
-                    companion.show(window, cx);
-                })
+                .update(cx, |companion, window, cx| companion.show(window, cx))
                 .ok();
 
             hotkey::init(hotkey, window, cx);
@@ -60,7 +57,7 @@ fn window_options(cx: &App) -> WindowOptions {
     let bounds = Bounds::centered(None, size(px(440.), px(540.)), cx);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        // No title bar; `panel::configure` also drops the frame entirely.
+        // No title bar; `Panel::configure` also drops the frame entirely.
         titlebar: None,
         kind: WindowKind::PopUp,
         is_resizable: false,

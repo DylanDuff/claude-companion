@@ -5,14 +5,14 @@
 1. Launch: activation policy set to Accessory (no Dock icon or menu bar),
    settings loaded, icons registered (`icon::Assets`), the window opened as
    `WindowKind::PopUp` (440 wide, no title bar, blurred background),
-   `panel::configure` applied, and the configured shortcut registered.
+   the native `Panel` configured, and the configured shortcut registered.
 2. The shortcut calls `Companion::toggle`:
    - **visible and key** → `panel::hide` (`orderOut:`).
    - otherwise → apply the expiry rule, **start `claude` if it isn't
      running** (prewarm), `panel::show` (`makeKeyAndOrderFront:`), focus,
      scroll to the bottom.
 
-   `panel::configure` switches the panel to a borderless non-activating
+   `Panel::configure` switches the panel to a borderless non-activating
    style mask, which removes the title bar, traffic lights and frame
    outline, and clips the content view and gpui's blur subview to
    `CORNER_RADIUS`. The root element draws the matching hairline border. The
@@ -39,9 +39,23 @@
   `COMPACT_HEIGHT` tall.
 - **Expanded** (any message, or settings open): transcript above, composer
   as an inset card below, `EXPANDED_HEIGHT` tall.
-- `sync_height` runs each render and resizes only on change, deferred past
-  the frame. `panel::set_height` keeps the top edge fixed, since AppKit
-  frames grow from the bottom-left.
+- `sync_height` runs on every notify (`observe_self`) and resizes only on
+  change, via `cx.defer` with the stored `Panel`. Two things matter here:
+  - **Before the frame:** the resize lands before the next draw, so a view
+    change and its new size appear together. Resizing from `render` drew one
+    frame at the old size, which cut off the composer's icon row when
+    shrinking.
+  - **Outside window updates:** AppKit reports the resize synchronously, and
+    gpui drops that report if it arrives during an update of the same window
+    (`defer_in`), leaving gpui drawing at the old size.
+
+  `Panel::set_height` keeps the top edge fixed, since AppKit frames grow
+  from the bottom-left.
+- **Focus:** in the chat view the root's mouse-down re-focuses the input and
+  calls `prevent_default`, so clicking anywhere never takes keystrokes away
+  from it. `Panel::show` also makes gpui's view first responder, because
+  changing the style mask can leave the window itself as first responder,
+  and then keystrokes never reach gpui.
 - Composer row: **+** new chat, **globe** toggles web search and page
   reading together (blue when on; the same settings as the Settings page,
   restarting `claude` once idle), **sliders** open Settings, and the
@@ -56,8 +70,10 @@
   (4px) of movement with the left button held, `panel::begin_drag` hands the
   current event to `performWindowDragWithEvent:` and the window server moves
   the window until release. Waiting for movement keeps plain clicks working
-  on buttons and links. The text input stops propagation of its mouse-down,
-  so drags there select text instead. gpui's `start_window_move` is a no-op
+  on buttons and links. Drags are skipped while the text input
+  `is_selecting()`, so drags there select text. (Don't stop propagation in
+  the input's mouse-down: gpui runs an element's listeners in reverse, so
+  that also cancels the input's own click-to-focus.) gpui's `start_window_move` is a no-op
   on macOS, hence the native call.
 - Icons are hand-drawn 24×24 stroke SVGs in `assets/icons/`, compiled in by
   the `icons!` macro and rendered with `svg()` (tinted by text colour).
