@@ -31,6 +31,7 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 - `src/selection.rs`: transcript text selection (`Selectable`,
   `TextRegistry`). `src/icon.rs`: embedded SVG icons (`icons!`) and
   `IconButton`.
+- `src/shimmer.rs`: the per-character shimmer on activity statuses.
 - `src/message_bubble.rs`, `src/theme.rs`: presentation only. Theme colours
   are translucent because the window background is `Blurred`.
 

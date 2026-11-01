@@ -1,9 +1,10 @@
 use std::{path::PathBuf, rc::Rc, time::Duration};
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels, Point,
-    ScrollHandle, SharedString, Subscription, Task, Window, actions, div, img, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable, Hsla,
+    KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
+    Point, ScrollHandle, SharedString, Subscription, Task, Window, actions, div, img, prelude::*,
+    px,
 };
 use smol::io::AsyncWriteExt;
 
@@ -20,6 +21,7 @@ use crate::{
     selection::{Selectable, Selection, TextRegistry},
     settings::Settings,
     settings_panel::{SettingsEvent, SettingsPanel},
+    shimmer,
     state::{Role, State},
     text_input::{self, Submit, TextInput},
     theme,
@@ -107,8 +109,58 @@ pub fn key_bindings() -> Vec<KeyBinding> {
 #[derive(Default)]
 struct Pending {
     reply: String,
-    /// What Claude is doing when it isn't writing, e.g. searching.
-    status: Option<SharedString>,
+    /// The tool Claude is using, while it isn't writing.
+    activity: Option<Activity>,
+}
+
+impl Pending {
+    /// What to show while Claude works: its tool, or thinking before any
+    /// text has arrived. `None` while text is streaming.
+    fn status(&self) -> Option<Activity> {
+        match &self.activity {
+            Some(activity) => Some(activity.clone()),
+            None if self.reply.is_empty() => Some(Activity::Thinking),
+            None => None,
+        }
+    }
+}
+
+/// What Claude is doing, shown with an icon and a shimmer.
+#[derive(Clone, Debug, PartialEq)]
+enum Activity {
+    Thinking,
+    Searching,
+    Reading,
+    /// Any other tool, by name.
+    Tool(SharedString),
+}
+
+impl Activity {
+    fn from_tool(name: &str) -> Self {
+        match name {
+            "web_search" | "WebSearch" => Self::Searching,
+            "web_fetch" | "WebFetch" => Self::Reading,
+            other => Self::Tool(other.to_string().into()),
+        }
+    }
+
+    fn icon(&self) -> Icon {
+        match self {
+            Self::Thinking => Icon::Sparkle,
+            Self::Searching => Icon::Search,
+            Self::Reading => Icon::Page,
+            Self::Tool(_) => Icon::Tool,
+        }
+    }
+
+    fn label(&self) -> SharedString {
+        match self {
+            Self::Thinking => "Thinking…".into(),
+            Self::Searching => "Searching the web…".into(),
+            Self::Reading => "Reading a page…".into(),
+            Self::Tool(name) => format!("Using {name}…").into(),
+        }
+    }
 }
 
 /// A running `claude` process plus the task reading its output. The reader
@@ -670,12 +722,12 @@ impl Companion {
             Event::TextDelta(text) => {
                 if let Some(pending) = self.pending.as_mut() {
                     pending.reply.push_str(&text);
-                    pending.status = None;
+                    pending.activity = None;
                 }
             }
             Event::ToolStarted(name) => {
                 if let Some(pending) = self.pending.as_mut() {
-                    pending.status = Some(tool_label(&name));
+                    pending.activity = Some(Activity::from_tool(&name));
                 }
             }
             Event::MessageEnded { last: false } => {}
@@ -1332,13 +1384,9 @@ fn render_pending(
     selectable: Selectable,
     code_copy: CodeCopy,
 ) -> AnyElement {
-    let status = pending.status.clone().unwrap_or_else(|| "Thinking…".into());
-    let status_line = div()
-        .text_xs()
-        .text_color(theme::muted_text())
-        .child(status);
+    let status_line = pending.status().map(render_activity);
     if pending.reply.is_empty() {
-        return status_line.into_any_element();
+        return div().children(status_line).into_any_element();
     }
     let bubble = MessageBubble::markdown(
         "pending",
@@ -1351,20 +1399,38 @@ fn render_pending(
         .flex_col()
         .gap_1()
         .child(bubble)
-        .children(pending.status.is_some().then_some(status_line))
+        .children(status_line)
         .into_any_element()
 }
 
-fn tool_label(name: &str) -> SharedString {
-    match name {
-        "web_search" | "WebSearch" => "Searching the web…".into(),
-        "web_fetch" | "WebFetch" => "Reading a page…".into(),
-        other => format!("Using {other}…").into(),
-    }
+/// An activity's icon and label, shimmering while it lasts.
+fn render_activity(activity: Activity) -> AnyElement {
+    let color = Hsla::from(theme::text());
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .text_size(px(13.))
+        .child(
+            activity
+                .icon()
+                .render(14., color.opacity(shimmer::icon_opacity())),
+        )
+        .child(shimmer::text(activity.label(), color))
+        .into_any_element()
 }
 
 impl Render for Companion {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Keep the shimmer moving while a status is on screen.
+        if self.view == View::Chat
+            && self
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.status().is_some())
+        {
+            window.request_animation_frame();
+        }
         // Normally already done by `observe_self`; this catches the first
         // frame.
         self.sync_height(cx);

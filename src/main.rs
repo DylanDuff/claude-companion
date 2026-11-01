@@ -14,6 +14,7 @@ mod segmented;
 mod selection;
 mod settings;
 mod settings_panel;
+mod shimmer;
 mod state;
 mod sticky;
 mod storage;

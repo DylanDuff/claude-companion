@@ -104,6 +104,13 @@
   follows the rule too: its 20pt circle sits `CLOSE_INSET` = 26 − 10 = 16pt
   from the top and left, concentric with the panel's corner, and its bar is
   16 + 20 + 16 tall.
+- **Activity status** (`Activity`, `shimmer.rs`): while a reply is pending,
+  `Pending::status` shows thinking (no text yet) or the current tool, with
+  an icon (sparkle, magnifier, page, wrench) and a shimmer. gpui can't mask
+  text with a moving gradient, so `shimmer::text` gives each character its
+  own run, brightened by its distance from a band that sweeps across every
+  1.8s. The icon's opacity follows the band. `Companion::render` calls
+  `request_animation_frame` only while a status is on screen.
 - **The chat clips at the composer's top edge:** the gap above the card is
   the chat's bottom padding, not the card's top margin, so messages scroll
   right down to the card.
@@ -242,7 +249,7 @@ during it is queued and starts once it finishes.
 | --- | --- | --- |
 | `stream_event` / `message_start` | `MessageStarted` | paragraph break between assistant messages (e.g. around a tool call) |
 | `stream_event` / `content_block_delta` with `text_delta` | `TextDelta` | appended to the pending reply |
-| `stream_event` / `content_block_start` with `tool_use` or `server_tool_use` | `ToolStarted` | status line ("Searching the web…") |
+| `stream_event` / `content_block_start` with `tool_use` or `server_tool_use` | `ToolStarted` | `Activity` status (searching, reading a page, other tool) |
 | `stream_event` / `message_delta` with a stop reason | `MessageEnded { last }` | `last` unless `tool_use` / `pause_turn`. On the last message: commit, unlock, mark unsettled |
 | `result` | `Finished { session_id, outcome }` | saves `session_id`; on error, shows it. Ignored if no turn is running |
 

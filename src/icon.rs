@@ -54,11 +54,15 @@ icons!(
     CloseFilled => "close-filled.svg",
     ChevronLeft => "chevron-left.svg",
     Copy => "copy.svg",
+    Page => "page.svg",
     Plus => "plus.svg",
     Retry => "retry.svg",
+    Search => "search.svg",
     Settings => "settings.svg",
+    Sparkle => "sparkle.svg",
     Speaker => "speaker.svg",
     Stop => "stop.svg",
+    Tool => "tool.svg",
 );
 
 impl Icon {
