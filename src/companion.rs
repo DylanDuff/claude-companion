@@ -68,10 +68,15 @@ const AUTOSCROLL_ZONE: f32 = 28.;
 const AUTOSCROLL_MAX_STEP: f32 = 24.;
 const AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(16);
 
-/// Height of the bar above the chat that holds the close button.
-const TOP_BAR_HEIGHT: f32 = 40.;
-/// Gap from the panel's left edge to the close button.
-const CLOSE_INSET: f32 = 10.;
+/// Diameter of the close button's circle.
+const CLOSE_SIZE: f32 = 20.;
+/// Gap from the panel's top and left edges to the close button: the panel's
+/// corner radius less the button's, so the circle sits concentric with the
+/// corner, equally far from both edges.
+const CLOSE_INSET: f32 = theme::PANEL_RADIUS - CLOSE_SIZE / 2.;
+/// Height of the bar above the chat that holds the close button, with the
+/// same gap below the button as above it.
+const TOP_BAR_HEIGHT: f32 = CLOSE_INSET * 2. + CLOSE_SIZE;
 
 /// How long a Copy button shows its tick.
 const COPIED_FEEDBACK: Duration = Duration::from_millis(1500);
@@ -1311,13 +1316,14 @@ impl Render for Companion {
                     div()
                         .flex_none()
                         .h(px(TOP_BAR_HEIGHT))
-                        .flex()
-                        .items_center()
-                        .pl(px(CLOSE_INSET))
+                        // Less the panel's 1pt border, so the gaps are
+                        // measured from the panel's outer edge.
+                        .pt(px(CLOSE_INSET - 1.))
+                        .pl(px(CLOSE_INSET - 1.))
                         .child(
                             IconButton::new("close", Icon::CloseFilled)
-                                .small()
-                                .icon_size(20.)
+                                .size(CLOSE_SIZE)
+                                .icon_size(CLOSE_SIZE)
                                 .color(theme::close_button())
                                 .on_click(
                                     cx.listener(|this, _, window, cx| this.close(window, cx)),

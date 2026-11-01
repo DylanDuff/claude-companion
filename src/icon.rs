@@ -107,6 +107,12 @@ impl IconButton {
         self
     }
 
+    /// Sets the button's diameter.
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = size;
+        self
+    }
+
     pub fn icon_size(mut self, size: f32) -> Self {
         self.icon_size = size;
         self
