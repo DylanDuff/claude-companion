@@ -33,11 +33,11 @@
 4. On hide, an idle timer is armed. If the window is still hidden and no
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.
-5. ⌘N starts a new chat. The **×** at the top left (a solid circle with
-   the × cut out of it, `close-filled.svg`, using an SVG mask, since gpui
-   tints icons a single colour) (in a 40pt bar above
-   the chat, shown once a chat has started) closes: it clears the
-   conversation and hides, so the next show starts fresh. ⌘Q quits.
+5. ⌘N starts a new chat. ⌘Q quits. Once a chat has started, a **×**
+   appears at the top left, in a 40pt bar above the chat. It clears the
+   conversation and hides, so the next show starts fresh. The button is a
+   solid circle with the × cut out (`close-filled.svg`, via an SVG mask),
+   because gpui tints an icon in a single colour.
 
 ## Layout (`companion.rs`)
 
