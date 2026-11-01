@@ -13,7 +13,7 @@ use crate::{
     icon::{Icon, IconButton},
     markdown::DocumentCache,
     message_bubble::MessageBubble,
-    panel::{self, Panel},
+    panel::{self, Panel, Placement},
     settings::Settings,
     settings_panel::{SettingsEvent, SettingsPanel},
     state::{Role, State},
@@ -36,6 +36,9 @@ const SETTINGS_HEIGHT: f32 = 720.;
 /// How far the mouse must move while pressed before the panel starts moving,
 /// so plain clicks still reach buttons.
 const DRAG_THRESHOLD: f32 = 4.;
+
+/// How long the panel must stay put before its position is saved.
+const PLACEMENT_SAVE_DELAY: Duration = Duration::from_millis(400);
 
 /// How long a Copy button shows its tick.
 const COPIED_FEEDBACK: Duration = Duration::from_millis(1500);
@@ -106,6 +109,8 @@ pub struct Companion {
     copied_reset: Option<Task<()>>,
     /// The native panel, configured once at creation.
     panel: Option<Panel>,
+    /// Saves the panel's position once it stops moving.
+    placement_save: Option<Task<()>>,
     /// The panel height last requested, so it is only resized on change.
     height: Option<f32>,
     /// Where the left button went down, while a window drag may still start.
@@ -120,7 +125,7 @@ impl Companion {
         let settings_panel = cx.new(|_| SettingsPanel::new(settings.clone()));
         let panel = Panel::new(window);
         if let Some(panel) = panel {
-            panel.configure();
+            set_up_panel(panel);
         }
         let subscriptions = vec![
             cx.subscribe_in(&input, window, |this, _, _: &Submit, _, cx| this.submit(cx)),
@@ -129,6 +134,8 @@ impl Companion {
             // Every state change notifies; resize then, before the frame is
             // drawn, so the new layout never appears at the old size.
             cx.observe_self(|this, cx| this.sync_height(cx)),
+            // Moves and resizes; remember where the user left the panel.
+            cx.observe_window_bounds(window, |this, _, cx| this.schedule_placement_save(cx)),
             cx.subscribe_in(
                 &settings_panel,
                 window,
@@ -163,6 +170,7 @@ impl Companion {
             copied: None,
             copied_reset: None,
             panel,
+            placement_save: None,
             height: None,
             drag_origin: None,
             visible: false,
@@ -198,7 +206,7 @@ impl Companion {
         if self.panel.is_none() {
             self.panel = Panel::new(window);
             if let Some(panel) = self.panel {
-                panel.configure();
+                set_up_panel(panel);
             }
         }
         if let Some(panel) = self.panel {
@@ -233,6 +241,18 @@ impl Companion {
                 }
             })
             .ok();
+        }));
+    }
+
+    /// Saves the panel's position once it has stayed put briefly, so a drag
+    /// writes the file once rather than on every step.
+    fn schedule_placement_save(&mut self, cx: &mut Context<Self>) {
+        let Some(panel) = self.panel else {
+            return;
+        };
+        self.placement_save = Some(cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(PLACEMENT_SAVE_DELAY).await;
+            panel.placement().save();
         }));
     }
 
@@ -891,5 +911,13 @@ impl Render for Companion {
             .bg(theme::background())
             .text_color(theme::text())
             .child(content)
+    }
+}
+
+/// Applies the native styling and moves the panel back to where it was left.
+fn set_up_panel(panel: Panel) {
+    panel.configure();
+    if let Some(placement) = Placement::load() {
+        panel.restore(placement);
     }
 }

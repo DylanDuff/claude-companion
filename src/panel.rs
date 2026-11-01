@@ -9,6 +9,29 @@
 /// Corner radius of the panel, matched by the root element's border.
 pub const CORNER_RADIUS: f32 = 22.;
 
+const PLACEMENT_FILE: &str = "window.json";
+
+/// Where the user left the panel: its bottom-left corner in AppKit screen
+/// coordinates. The bottom edge is what stays put as the panel resizes, so
+/// it is what gets remembered.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Placement {
+    pub x: f64,
+    pub bottom: f64,
+}
+
+impl Placement {
+    pub fn load() -> Option<Self> {
+        crate::storage::load::<Option<Self>>(PLACEMENT_FILE)
+    }
+
+    pub fn save(self) {
+        if let Err(error) = crate::storage::save(PLACEMENT_FILE, &Some(self)) {
+            eprintln!("claude-companion: couldn't save window position: {error}");
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub use native::Panel;
 
@@ -120,6 +143,38 @@ mod native {
             }
         }
 
+        pub fn placement(self) -> super::Placement {
+            let frame: NSRect = unsafe { msg_send![self.native_window, frame] };
+            super::Placement {
+                x: frame.origin.x,
+                bottom: frame.origin.y,
+            }
+        }
+
+        /// Moves the panel back to a remembered spot, unless no connected
+        /// screen shows it any more (e.g. the display it was on is gone),
+        /// in which case it stays where gpui placed it.
+        pub fn restore(self, placement: super::Placement) {
+            unsafe {
+                let screens: id = msg_send![class!(NSScreen), screens];
+                let count: usize = msg_send![screens, count];
+                let visible = (0..count).any(|index| {
+                    let screen: id = msg_send![screens, objectAtIndex: index];
+                    let area: NSRect = msg_send![screen, visibleFrame];
+                    // The composer's corner must land on screen.
+                    let (x, y) = (placement.x + 24., placement.bottom + 24.);
+                    x >= area.origin.x
+                        && x <= area.origin.x + area.size.width
+                        && y >= area.origin.y
+                        && y <= area.origin.y + area.size.height
+                });
+                if visible {
+                    let origin = NSPoint::new(placement.x, placement.bottom);
+                    let _: () = msg_send![self.native_window, setFrameOrigin: origin];
+                }
+            }
+        }
+
         pub fn show(self) {
             unsafe {
                 // Changing the style mask can leave the window itself as first
@@ -164,6 +219,12 @@ impl Panel {
     pub fn set_height(self, _height: f32) {}
 
     pub fn begin_drag(self) {}
+
+    pub fn placement(self) -> Placement {
+        Placement { x: 0., bottom: 0. }
+    }
+
+    pub fn restore(self, _placement: Placement) {}
 
     pub fn show(self) {}
 
