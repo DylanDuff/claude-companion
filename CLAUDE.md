@@ -18,7 +18,10 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   setting is a `Segmented<T: Choice>`, `bool` included.
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
-- `src/message_bubble.rs`, `src/theme.rs`: presentation only.
+- `src/markdown.rs` (parse to blocks, `DocumentCache`), `src/markdown_view.rs`
+  (render), `src/highlight.rs` (syntect): assistant replies as Markdown.
+- `src/message_bubble.rs`, `src/theme.rs`: presentation only. Theme colours
+  are translucent because the window background is `Blurred`.
 
 ## Invariants
 
@@ -47,6 +50,8 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   `orderOut:` on the non-activating NSPanel). Don't use `cx.activate` or
   `cx.hide`: activating the app races with gpui's key-window workaround.
   Hide-on-blur is debounced (`BLUR_GRACE`).
+- **Inline marks must stay non-overlapping** (`InlineBuilder::finish`):
+  GPUI highlight runs can't overlap.
 - `Session` fields are ordered reader-first so a deliberate kill cancels the
   reader before it can report the exit.
 

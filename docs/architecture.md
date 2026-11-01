@@ -12,6 +12,10 @@
      running** (prewarm), `panel::show` (`makeKeyAndOrderFront:`), focus,
      scroll to the bottom.
 
+   `panel::show` also hides the traffic lights on every show. The window
+   uses `WindowBackgroundAppearance::Blurred`, and the theme colours are
+   partly transparent to let it show through.
+
    The PopUp window is a non-activating `NSPanel`, so it takes keyboard
    focus while the previous app stays frontmost, and hiding returns focus to
    that app. The app itself is never activated or hidden: doing that
@@ -131,9 +135,36 @@ Additions: a `Submit` event on Enter (ignored while IME text is marked),
 `take()`, ⌘←/⌘→, and horizontal scrolling (`scroll_x`) applied consistently
 across painting, mouse hit-testing and IME bounds.
 
+## Markdown (`markdown.rs`, `markdown_view.rs`, `highlight.rs`)
+
+Assistant replies render as Markdown; user messages and errors stay plain.
+
+- `markdown::parse` turns pulldown-cmark events (tables, strikethrough, task
+  lists and GFM on) into a small model: `Block` = paragraph, heading, code,
+  list, quote, table, rule; `Inline` = text plus marks and links. It is
+  GPUI-free so it can be unit tested.
+- Inline marks can nest (`**bold *both***`), but GPUI highlight runs must
+  not overlap, so `InlineBuilder::finish` splits them at every boundary and
+  merges the styles.
+- Unclosed constructs (a code fence while a reply is still streaming) are
+  closed in `Builder::finish`, so partial replies render sensibly.
+- Code blocks are coloured by syntect (`base16-ocean.dark`, pure-Rust
+  `fancy-regex`). Unknown languages render plain; `grammar_token` maps
+  common fence labels the bundled grammars lack (`ts` → `js`, `zsh` → `sh`,
+  …). The grammars load on a background thread at launch
+  (`highlight::preload`).
+- `DocumentCache` (owned by `Companion`) keys parsed documents by a hash of
+  their text and drops entries unused in the last render, so a message is
+  parsed and highlighted once. The streaming reply is re-parsed only when
+  new text arrives.
+- Rendering: code blocks have a language label, a Copy button and
+  horizontal scrolling (no wrapping, Menlo). Links are clickable
+  (`InteractiveText` → `open_url`). Inline code can't change font family
+  through a highlight, so it uses colour and a background instead.
+
 ## Known limitations
 
-- Replies are shown as plain text: no Markdown rendering, and no selecting or
-  copying text in the transcript.
+- Text in the transcript can't be selected or copied (code blocks have a
+  Copy button). Images in replies show as their alt text.
 - The input is single-line, and pasted newlines become spaces.
 - Shortcuts come from a fixed list; there is no key recorder.
