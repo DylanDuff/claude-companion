@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use crate::{
+    highlight::{self, Highlight},
     icon::Icon,
     markdown::{Block, Document, Inline, Marks},
     theme,
@@ -146,12 +147,7 @@ impl RenderContext {
         }
     }
 
-    fn code(
-        &mut self,
-        language: Option<&str>,
-        code: &str,
-        highlights: &[(std::ops::Range<usize>, u32)],
-    ) -> AnyElement {
+    fn code(&mut self, language: Option<&str>, code: &str, highlights: &[Highlight]) -> AnyElement {
         let copied = code.to_string();
         let copy = div()
             .id(self.id())
@@ -176,19 +172,22 @@ impl RenderContext {
             .child(language.unwrap_or("text").to_uppercase())
             .child(copy);
         let styled = StyledText::new(code.to_string()).with_highlights(highlights.iter().map(
-            |(range, color)| {
-                (
-                    range.clone(),
-                    gpui::HighlightStyle {
-                        color: Some(rgb(*color).into()),
-                        ..gpui::HighlightStyle::default()
-                    },
-                )
+            |(range, paint)| {
+                let style = gpui::HighlightStyle {
+                    color: Some(rgb(paint.color).into()),
+                    font_style: paint.italic.then_some(FontStyle::Italic),
+                    font_weight: paint.bold.then_some(FontWeight::BOLD),
+                    ..gpui::HighlightStyle::default()
+                };
+                (range.clone(), style)
             },
         ));
         div()
             .rounded(px(14.))
-            .bg(theme::code_background())
+            .map(|this| match highlight::code_background() {
+                Some(color) => this.bg(rgb(color)),
+                None => this.bg(theme::code_background()),
+            })
             .px_4()
             .pt_3()
             .pb_4()

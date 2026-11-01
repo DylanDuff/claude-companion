@@ -15,6 +15,7 @@ mod storage;
 mod switch;
 mod text_input;
 mod theme;
+mod zed_theme;
 
 use gpui::{
     App, AppContext, Application, Bounds, KeyBinding, WindowBackgroundAppearance, WindowBounds,

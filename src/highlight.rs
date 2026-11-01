@@ -1,35 +1,70 @@
 //! Syntax highlighting for code blocks, via syntect's bundled Sublime Text
-//! grammars and themes.
+//! grammars. Colours come from the user's Zed theme when it can be found
+//! (`zed_theme.rs`), else a bundled theme.
 
 use std::{ops::Range, sync::OnceLock};
 
 use syntect::{
     easy::HighlightLines,
-    highlighting::{Theme, ThemeSet},
+    highlighting::{FontStyle, Theme, ThemeSet},
     parsing::SyntaxSet,
     util::LinesWithEndings,
 };
 
-const THEME: &str = "base16-ocean.dark";
+use crate::zed_theme;
 
-/// A byte range of the code and its foreground colour as `0xRRGGBB`.
-pub type Highlight = (Range<usize>, u32);
+/// Used when no Zed theme is found.
+const FALLBACK_THEME: &str = "base16-ocean.dark";
+
+/// How a run of code is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Paint {
+    /// Foreground as `0xRRGGBB`.
+    pub color: u32,
+    pub italic: bool,
+    pub bold: bool,
+}
+
+/// A byte range of the code and how to draw it.
+pub type Highlight = (Range<usize>, Paint);
 
 struct Assets {
     syntaxes: SyntaxSet,
     theme: Theme,
+    /// The Zed theme's editor background, if a Zed theme is in use.
+    background: Option<u32>,
 }
 
 static ASSETS: OnceLock<Assets> = OnceLock::new();
 
 fn assets() -> &'static Assets {
     ASSETS.get_or_init(|| {
-        let mut themes = ThemeSet::load_defaults();
-        Assets {
-            syntaxes: SyntaxSet::load_defaults_newlines(),
-            theme: themes.themes.remove(THEME).expect("bundled theme exists"),
+        let syntaxes = SyntaxSet::load_defaults_newlines();
+        match zed_theme::load() {
+            Some(zed) => Assets {
+                syntaxes,
+                theme: zed.syntax,
+                background: zed.background,
+            },
+            None => {
+                let mut themes = ThemeSet::load_defaults();
+                Assets {
+                    syntaxes,
+                    theme: themes
+                        .themes
+                        .remove(FALLBACK_THEME)
+                        .expect("bundled theme exists"),
+                    background: None,
+                }
+            }
         }
     })
+}
+
+/// Background for code blocks: the Zed theme's editor background, so its
+/// colours sit on the surface they were designed for.
+pub fn code_background() -> Option<u32> {
+    assets().background
 }
 
 /// Loads the grammars on a background thread so the first code block
@@ -74,16 +109,20 @@ pub fn highlight(language: Option<&str>, code: &str) -> Vec<Highlight> {
         };
         for (style, text) in regions {
             let color = style.foreground;
-            let color = u32::from(color.r) << 16 | u32::from(color.g) << 8 | u32::from(color.b);
+            let paint = Paint {
+                color: u32::from(color.r) << 16 | u32::from(color.g) << 8 | u32::from(color.b),
+                italic: style.font_style.contains(FontStyle::ITALIC),
+                bold: style.font_style.contains(FontStyle::BOLD),
+            };
             let range = offset..offset + text.len();
             offset = range.end;
             match highlights.last_mut() {
-                Some((previous, previous_color))
-                    if *previous_color == color && previous.end == range.start =>
+                Some((previous, previous_paint))
+                    if *previous_paint == paint && previous.end == range.start =>
                 {
                     previous.end = range.end;
                 }
-                _ => highlights.push((range, color)),
+                _ => highlights.push((range, paint)),
             }
         }
     }

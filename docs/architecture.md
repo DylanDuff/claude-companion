@@ -218,8 +218,25 @@ Assistant replies render as Markdown; user messages and errors stay plain.
   merges the styles.
 - Unclosed constructs (a code fence while a reply is still streaming) are
   closed in `Builder::finish`, so partial replies render sensibly.
-- Code blocks are coloured by syntect (`base16-ocean.dark`, pure-Rust
-  `fancy-regex`). Unknown languages render plain; `grammar_token` maps
+- Code blocks are coloured by syntect (pure-Rust `fancy-regex`) using the
+  **user's Zed theme** (`zed_theme.rs`), falling back to `base16-ocean.dark`:
+  - The theme name comes from `~/.config/zed/settings.json` (JSONC: comments
+    and trailing commas are stripped first). For `{ mode, light, dark }`, the
+    dark theme is used, because the companion is always dark.
+  - The theme is looked up by name in `~/.config/zed/themes/*.json` and
+    `~/Library/Application Support/Zed/extensions/installed/*/themes/*.json`.
+    Zed's built-in themes (One Dark etc.) are compiled into Zed, so they
+    fall back.
+  - Zed styles tree-sitter captures while syntect grammars emit TextMate
+    scopes, so `SCOPES` maps TextMate selectors to Zed keys, each resolved
+    with Zed's fallback (`keyword.import` → `keyword`). Colour, italic and
+    bold carry over.
+  - Code blocks use the theme's `editor.background`, so its colours sit on
+    the surface they were designed for.
+  - The theme loads once at launch; restart the companion after changing
+    it in Zed.
+  - Known gap: where a grammar gives different tokens one scope, they share
+    a colour (Rust's `let` and `i32` are both `storage.type.rust`). Unknown languages render plain; `grammar_token` maps
   common fence labels the bundled grammars lack (`ts` → `js`, `zsh` → `sh`,
   …). The grammars load on a background thread at launch
   (`highlight::preload`).

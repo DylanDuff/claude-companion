@@ -20,7 +20,8 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
 - `src/markdown.rs` (parse to blocks, `DocumentCache`), `src/markdown_view.rs`
-  (render), `src/highlight.rs` (syntect): assistant replies as Markdown.
+  (render), `src/highlight.rs` (syntect), `src/zed_theme.rs` (translates the
+  user's Zed theme to a syntect theme): assistant replies as Markdown.
 - `src/panel.rs`: native NSPanel work (borderless rounded style,
   bottom-anchored resize, show/hide, drag) and `Placement` (`window.json`). `src/icon.rs`: embedded SVG icons (`icons!`) and
   `IconButton`.
