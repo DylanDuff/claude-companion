@@ -40,14 +40,15 @@
 - **Expanded** (any message, or settings open): transcript above, composer
   as an inset card below, `EXPANDED_HEIGHT` tall.
 - `sync_height` runs on every notify (`observe_self`) and resizes only on
-  change, via `cx.defer` with the stored `Panel`. Two things matter here:
-  - **Before the frame:** the resize lands before the next draw, so a view
-    change and its new size appear together. Resizing from `render` drew one
-    frame at the old size, which cut off the composer's icon row when
-    shrinking.
-  - **Outside window updates:** AppKit reports the resize synchronously, and
-    gpui drops that report if it arrives during an update of the same window
-    (`defer_in`), leaving gpui drawing at the old size.
+  change, from a spawned task holding the stored `Panel`. AppKit reports a
+  resize to gpui synchronously, and gpui silently drops that report if the
+  app is borrowed at that moment, which is true inside any update, `render`,
+  `defer_in` or `cx.defer`. gpui then keeps laying out for the old size
+  (e.g. the compact bar laid out 540pt tall in a 96pt window, its icon row
+  cut off). A spawned task runs on the main queue outside the borrow, like
+  gpui's own `Window::resize`. It is queued before the next display-link
+  frame, so the view change and the new size are drawn together, as checked
+  frame by frame in a 60fps screen recording.
 
   `Panel::set_height` keeps the top edge fixed, since AppKit frames grow
   from the bottom-left.

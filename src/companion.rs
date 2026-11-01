@@ -669,9 +669,14 @@ impl Companion {
             return;
         };
         self.height = Some(height);
-        // AppKit reports the resize synchronously; deferring to an app-level
-        // callback means no window update is running, so gpui receives it.
-        cx.defer(move |_| panel.set_height(height));
+        // AppKit reports the resize to gpui synchronously, and gpui drops the
+        // report if it arrives while the app is borrowed, which is true
+        // inside any update or `cx.defer`. A spawned task runs on the main
+        // queue outside that borrow (as gpui's own `Window::resize` does), and
+        // it is queued ahead of the next frame, so the new view and size are
+        // drawn together.
+        cx.spawn(async move |_, _| panel.set_height(height))
+            .detach();
     }
 
     fn render_reply_actions(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
