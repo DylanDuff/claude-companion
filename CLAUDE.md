@@ -23,8 +23,13 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   (render), `src/highlight.rs` (syntect), `src/code_theme.rs` (built-in
   Catppuccin Macchiato), `src/sticky.rs` (pinned code headers),
   `src/scroll.rs` (scroll-axis helpers): assistant replies as Markdown.
-- `src/panel.rs`: native NSPanel work (borderless rounded style,
-  bottom-anchored resize, show/hide, drag) and `Placement` (`window.json`). `src/icon.rs`: embedded SVG icons (`icons!`) and
+- `src/panel.rs`: native NSPanel work (borderless rounded style, runtime
+  corner radius, bottom-anchored resize, show/hide, drag, app activation for
+  the file picker) and `Placement` (`window.json`).
+- `src/attachments.rs`: image attachments copied into the support folder,
+  and their base64 content blocks.
+- `src/selection.rs`: transcript text selection (`Selectable`,
+  `TextRegistry`). `src/icon.rs`: embedded SVG icons (`icons!`) and
   `IconButton`.
 - `src/message_bubble.rs`, `src/theme.rs`: presentation only. Theme colours
   are translucent because the window background is `Blurred`.

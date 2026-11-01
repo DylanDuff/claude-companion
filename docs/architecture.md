@@ -31,7 +31,7 @@
 4. On hide, an idle timer is armed. If the window is still hidden and no
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.
-5. ⌘N or **+** starts a new chat. ⌘Q quits.
+5. ⌘N starts a new chat. ⌘Q quits.
 
 ## Layout (`companion.rs`)
 
@@ -62,15 +62,38 @@
   from it. `Panel::show` also makes gpui's view first responder, because
   changing the style mask can leave the window itself as first responder,
   and then keystrokes never reach gpui.
-- Composer row: **+** new chat, **sliders** open Settings (web access is
-  switched there), and the **send** button (light when there's text to
-  send).
+- Composer row: **+** attaches images, **sliders** open Settings (web
+  access is switched there), and the **send** button (light when there's
+  text or an image to send).
+- **Image attachments** (`attachments.rs`): from **+** (gpui's file picker),
+  ⌘V or dropping files onto the panel. PNG, JPEG, GIF and WebP up to 5 MB.
+  - Each image is copied into `attachments/` in the support folder
+    (pasted images are written there), so it outlives the original or the
+    clipboard, shows after a relaunch, and can be re-sent by Retry.
+    `Message.images` holds the paths, and `State::clear` (new chat, expiry)
+    deletes them.
+  - Sending turns them into base64 `image` content blocks ahead of the text
+    block (`Process::send`). Text-only messages stay a plain string.
+  - The composer shows removable thumbnails, and a red notice line for a
+    rejected file. The transcript shows sent images as 120pt squares above
+    the bubble. Fixed-size images are a clipping wrapper with the `img` at
+    `size_full()` + `ObjectFit::Cover`, because an `img` sized directly
+    keeps its aspect ratio.
+  - The picker opens without activating the app, so `pick_images` calls
+    `Panel::activate_app` (only here; showing the panel never activates)
+    and sets `picking` so hide-on-blur ignores the focus loss. It re-shows
+    the panel when the picker closes.
+  - ⌘V goes to the input first. With no text on the clipboard it calls
+    `propagate()`, and the root's `paste_image` takes the image entry.
 - **Corner radii nest** (`theme.rs` geometry constants): each radius is the
   radius inside it plus the gap between them, running outward from the 36pt
   buttons. Card = 18 + `COMPOSER_INSET` (6) = 24; panel = 24 +
-  `COMPOSER_MARGIN` (8) = 32. In the compact bar the panel is the card, so
-  its buttons sit `COMPACT_INSET` = 32 − 18 = 14 in. `COMPACT_HEIGHT` is
-  derived from the same constants.
+  `COMPOSER_MARGIN` (8) = 32. The compact bar is the card on its own at the
+  card's scale: same 6pt inset, and the panel's radius switches to
+  `COMPACT_RADIUS` (24) while compact (`corner_radius`, applied natively by
+  `Panel::set_corner_radius` in the same task as the resize).
+  `COMPACT_HEIGHT` (84) is derived from the same constants and grows for
+  thumbnails and the notice line.
 - **The chat clips at the composer's top edge:** the gap above the card is
   the chat's bottom padding, not the card's top margin, so messages scroll
   right down to the card.
@@ -94,6 +117,13 @@
   the input copies its own selection, or calls `propagate()` so the root
   copies the transcript selection (pieces joined by newlines). Selections
   are cleared on new chat, retry and expiry.
+- **Auto-scroll while selecting:** while a selection drag is within
+  `AUTOSCROLL_ZONE` (28pt) of the chat's top or bottom edge, or past it
+  (e.g. over the composer), a 16ms loop scrolls the chat (faster the deeper
+  in, up to 24pt a step) and re-extends the selection. gpui only sends mouse
+  moves while the pointer is over the panel, and no mouse-up for a release
+  outside it, so the loop checks `Panel::left_button_down`
+  (`NSEvent.pressedMouseButtons`) and stops when the button is up.
 - **Moving the panel:** press anywhere away from text and drag. After `DRAG_THRESHOLD`
   (4px) of movement with the left button held, `panel::begin_drag` hands the
   current event to `performWindowDragWithEvent:` and the window server moves
@@ -120,8 +150,11 @@ written to `*.json.tmp` and then renamed over the original.
 `state.json`, the conversation:
 
 ```json
-{ "session_id": "…", "last_activity": 1793500000, "transcript": [{ "role": "user", "text": "…" }] }
+{ "session_id": "…", "last_activity": 1793500000,
+  "transcript": [{ "role": "user", "text": "…", "images": ["…/attachments/1793…-0.png"] }] }
 ```
+
+`images` is omitted when empty. Attached images live in `attachments/`.
 
 `settings.json`: see [Settings](#settings). Fields missing from the file take
 their default values (`#[serde(default)]`); a file that can't be parsed
@@ -294,8 +327,8 @@ Assistant replies render as Markdown; user messages and errors stay plain.
 
 ## Known limitations
 
-- Selection is by drag only: no double-click word selection, shift-click
-  extension or auto-scroll while dragging past the edge. Images in replies
-  show as their alt text.
+- Selection is by drag only: no double-click word selection or shift-click
+  extension. Images in replies show as their alt text. Large photos aren't
+  downscaled, so images over 5 MB are refused.
 - The input is single-line, and pasted newlines become spaces.
 - Shortcuts come from a fixed list; there is no key recorder.
