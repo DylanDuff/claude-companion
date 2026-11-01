@@ -5,7 +5,7 @@
 
 use std::{cell::RefCell, ops::Range, rc::Rc};
 
-use gpui::{Hsla, Pixels, Point, SharedString, StyledText, TextLayout, TextRun};
+use gpui::{Bounds, Hsla, Pixels, Point, SharedString, StyledText, TextLayout, TextRun};
 
 /// A position in the transcript: a message, and a byte offset into that
 /// message's selectable text (its text pieces laid end to end, see
@@ -51,19 +51,36 @@ struct Piece {
     layout: TextLayout,
 }
 
-/// The text pieces drawn in the current frame, in reading order. Rebuilt by
-/// every render, and hit-tested between frames, after layout, so every
-/// registered layout has bounds.
+/// The text pieces drawn in the current frame, in reading order, and the
+/// areas drawn over text that must not start a selection (pinned code
+/// headers). Rebuilt by every render and the prepaint that follows, and
+/// hit-tested between frames, after layout, so every registered layout has
+/// bounds.
 #[derive(Clone, Default)]
-pub struct TextRegistry(Rc<RefCell<Vec<Piece>>>);
+pub struct TextRegistry(Rc<RefCell<Vec<Piece>>>, Rc<RefCell<Vec<Bounds<Pixels>>>>);
 
 impl TextRegistry {
     pub fn clear(&self) {
         self.0.borrow_mut().clear();
+        self.1.borrow_mut().clear();
     }
 
-    /// The text point under `position`, if it's over text.
+    /// Marks an area drawn on top of text, so presses there don't select
+    /// the text underneath.
+    pub fn block(&self, bounds: Bounds<Pixels>) {
+        self.1.borrow_mut().push(bounds);
+    }
+
+    /// The text point under `position`, if it's over visible text.
     pub fn hit(&self, position: Point<Pixels>) -> Option<TextPoint> {
+        if self
+            .1
+            .borrow()
+            .iter()
+            .any(|bounds| bounds.contains(&position))
+        {
+            return None;
+        }
         self.0.borrow().iter().find_map(|piece| {
             if !piece.layout.bounds().contains(&position) {
                 return None;
@@ -151,6 +168,11 @@ impl Selectable {
             selection,
             color,
         }
+    }
+
+    /// The registry this message's text registers in.
+    pub fn registry(&self) -> &TextRegistry {
+        &self.registry
     }
 
     /// Builds `text` from `runs`, with the selected part highlighted, and

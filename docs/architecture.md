@@ -134,7 +134,11 @@
   moves while the pointer is over the panel, and no mouse-up for a release
   outside it, so the loop checks `Panel::left_button_down`
   (`NSEvent.pressedMouseButtons`) and stops when the button is up.
-- **Moving the panel:** press anywhere away from text and drag. After `DRAG_THRESHOLD`
+- **Moving the panel:** press anywhere away from text and drag. Only text
+  inside the chat's visible area can be pressed: text scrolled out of view
+  keeps its layout under the top bar, so presses there would otherwise
+  start a selection. Pinned code headers `block` their area in the
+  `TextRegistry` for the same reason, so they act as drag targets too. After `DRAG_THRESHOLD`
   (4px) of movement with the left button held, `panel::begin_drag` hands the
   current event to `performWindowDragWithEvent:` and the window server moves
   the window until release. Waiting for movement keeps plain clicks working
@@ -143,13 +147,21 @@
   the input's mouse-down: gpui runs an element's listeners in reverse, so
   that also cancels the input's own click-to-focus.) gpui's `start_window_move` is a no-op
   on macOS, hence the native call.
-- **Edge snapping:** after a user drag (not after the panel resizes
-  itself), once the button is released, `Panel::snap_to_edges` pulls in any
-  edge of the screen's usable area within `SNAP_REACH` (40pt), leaving
-  `SNAP_GAP` (12pt), animated. macOS performs the drag, so there's no
-  mouse-up event. `schedule_placement_save` waits for the moves to settle,
-  then polls `Panel::left_button_down` until release. The snap's own move
-  schedules the save, so the snapped spot is what's remembered.
+- **Edge snapping:** when a user drag starts (`snap_after_drag`), a task
+  polls `Panel::left_button_down` every 16ms. macOS performs the drag, so
+  there's no mouse-up event. On release, `Panel::snap_target` finds any
+  screen edge within `SNAP_REACH` (40pt) of the panel, or past it, and the
+  panel glides there, `SNAP_GAP` (12pt) in, over `SNAP_DURATION` (220ms)
+  with a cubic ease-out:
+  - **Edges:** the sides and bottom are the screen's real edges (the
+    PopUp-level panel floats above the Dock); the top stops below the menu
+    bar. `snap_axis` is the pure, tested rule per axis.
+  - **Motion:** AppKit's animated `setFrame:` doesn't animate the borderless
+    panel, so the glide steps `setFrameOrigin:` itself, timed by the clock
+    and outside gpui updates.
+  - **Saving:** the glide lives in `snap`, not `placement_save` (which every
+    move reschedules), and saves where it lands.
+  - **Scope:** resizes never snap.
 - **Remembered position:** the panel's bottom-left corner (AppKit
   coordinates, since the bottom edge is what stays put) is saved to
   `window.json` 400ms after it stops moving (`observe_window_bounds`,

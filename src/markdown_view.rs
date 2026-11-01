@@ -232,13 +232,16 @@ impl RenderContext {
         div()
             .rounded(px(CODE_RADIUS))
             .bg(rgb(code_theme::BACKGROUND))
-            .child(StickyHeader::new(
-                header,
-                body,
-                px(4.),
-                rgb(code_theme::BACKGROUND),
-                px(CODE_RADIUS),
-            ))
+            .child(
+                StickyHeader::new(
+                    header,
+                    body,
+                    px(4.),
+                    rgb(code_theme::BACKGROUND),
+                    px(CODE_RADIUS),
+                )
+                .blocking_selection(self.selectable.registry().clone()),
+            )
             .into_any_element()
     }
 

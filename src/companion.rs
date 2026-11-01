@@ -907,9 +907,14 @@ impl Companion {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Only text inside the chat's visible area counts. Text scrolled out
+        // of view still has layout under the top bar, and the bar must stay
+        // a drag target.
         let hit = match self.view {
-            View::Chat => self.text_registry.hit(event.position),
-            View::Settings => None,
+            View::Chat if self.scroll.bounds().contains(&event.position) => {
+                self.text_registry.hit(event.position)
+            }
+            _ => None,
         };
         match hit {
             Some(point) => {

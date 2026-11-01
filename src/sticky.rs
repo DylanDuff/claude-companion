@@ -7,6 +7,8 @@ use gpui::{
     relative,
 };
 
+use crate::selection::TextRegistry;
+
 /// Stacks `header` above `body`. While the block is partly scrolled out of
 /// the enclosing scroller, the header is pushed down to the scroller's top
 /// edge, stopping at the bottom of the block so it never leaves it.
@@ -21,6 +23,9 @@ pub struct StickyHeader {
     gap: Pixels,
     background: Hsla,
     radius: Pixels,
+    /// Told where the header is drawn while pinned, so presses on it don't
+    /// select the text it covers.
+    blocks: Option<TextRegistry>,
 }
 
 impl StickyHeader {
@@ -37,7 +42,13 @@ impl StickyHeader {
             gap,
             background: background.into(),
             radius,
+            blocks: None,
         }
+    }
+
+    pub fn blocking_selection(mut self, registry: TextRegistry) -> Self {
+        self.blocks = Some(registry);
+        self
     }
 }
 
@@ -108,13 +119,15 @@ impl Element for StickyHeader {
         window.with_element_offset(point(px(0.), offset), |window| {
             self.header.prepaint(window, cx);
         });
-        Placement {
-            bounds: Bounds {
-                origin: header_bounds.origin + point(px(0.), offset),
-                size: header_bounds.size,
-            },
-            pinned: offset > px(0.),
+        let bounds = Bounds {
+            origin: header_bounds.origin + point(px(0.), offset),
+            size: header_bounds.size,
+        };
+        let pinned = offset > px(0.);
+        if pinned && let Some(registry) = &self.blocks {
+            registry.block(bounds);
         }
+        Placement { bounds, pinned }
     }
 
     fn paint(
