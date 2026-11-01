@@ -1297,32 +1297,37 @@ impl Render for Companion {
         // frame.
         self.sync_height(cx);
         let compact = self.is_compact();
-        let content =
-            match self.view {
-                View::Settings => self.settings_panel.clone().into_any_element(),
-                View::Chat if compact => self.render_composer(true, cx).into_any_element(),
-                View::Chat => div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        // Its own bar, so scrolled text and pinned code headers
-                        // stop below the button instead of passing under it.
-                        div()
-                            .flex_none()
-                            .h(px(TOP_BAR_HEIGHT))
-                            .flex()
-                            .items_center()
-                            .pl(px(CLOSE_INSET))
-                            .child(IconButton::new("close", Icon::Close).small().on_click(
-                                cx.listener(|this, _, window, cx| this.close(window, cx)),
-                            )),
-                    )
-                    .child(self.render_chat(cx))
-                    .child(self.render_composer(false, cx))
-                    .into_any_element(),
-            };
+        let content = match self.view {
+            View::Settings => self.settings_panel.clone().into_any_element(),
+            View::Chat if compact => self.render_composer(true, cx).into_any_element(),
+            View::Chat => div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(
+                    // Its own bar, so scrolled text and pinned code headers
+                    // stop below the button instead of passing under it.
+                    div()
+                        .flex_none()
+                        .h(px(TOP_BAR_HEIGHT))
+                        .flex()
+                        .items_center()
+                        .pl(px(CLOSE_INSET))
+                        .child(
+                            IconButton::new("close", Icon::CloseFilled)
+                                .small()
+                                .icon_size(20.)
+                                .color(theme::close_button())
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.close(window, cx)),
+                                ),
+                        ),
+                )
+                .child(self.render_chat(cx))
+                .child(self.render_composer(false, cx))
+                .into_any_element(),
+        };
 
         div()
             .key_context(CONTEXT)

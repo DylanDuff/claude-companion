@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><defs><mask id="cutout"><rect width="24" height="24" fill="white"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="black" stroke-width="2.2" stroke-linecap="round"/></mask></defs><circle cx="12" cy="12" r="11" fill="black" mask="url(#cutout)"/></svg>

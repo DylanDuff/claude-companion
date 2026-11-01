@@ -100,3 +100,8 @@ pub fn switch_off() -> Rgba {
 pub fn switch_knob() -> Rgba {
     rgb(0xffffff)
 }
+
+/// The close button's solid circle; its × is cut out of it.
+pub fn close_button() -> Hsla {
+    Hsla::from(rgb(0xf2f2f4)).opacity(0.4)
+}

@@ -50,6 +50,8 @@ icons!(
     ArrowUp => "arrow-up.svg",
     Check => "check.svg",
     Close => "close.svg",
+    // A filled circle with the × cut out, so the background shows through.
+    CloseFilled => "close-filled.svg",
     ChevronLeft => "chevron-left.svg",
     Copy => "copy.svg",
     Plus => "plus.svg",
@@ -102,6 +104,11 @@ impl IconButton {
         self.size = 28.;
         self.icon_size = 16.;
         self.color = theme::muted_text();
+        self
+    }
+
+    pub fn icon_size(mut self, size: f32) -> Self {
+        self.icon_size = size;
         self
     }
 
