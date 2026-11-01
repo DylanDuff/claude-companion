@@ -84,17 +84,34 @@ mod native {
                 let window = self.native_window;
                 let _: () = msg_send![window, setStyleMask: BORDERLESS_PANEL];
                 let _: () = msg_send![window, setHasShadow: YES];
-                let content_view: id = msg_send![window, contentView];
-                round_corners(content_view);
+            }
+            self.set_corner_radius(CORNER_RADIUS);
+        }
+
+        /// Clips the content, blur included, to rounded corners of `radius`.
+        pub fn set_corner_radius(self, radius: f32) {
+            unsafe {
+                let content_view: id = msg_send![self.native_window, contentView];
+                round_corners(content_view, radius);
                 // gpui puts the blur in a subview; round it too in case the
                 // content view's mask doesn't reach it.
                 let subviews: id = msg_send![content_view, subviews];
                 let count: usize = msg_send![subviews, count];
                 for index in 0..count {
                     let subview: id = msg_send![subviews, objectAtIndex: index];
-                    round_corners(subview);
+                    round_corners(subview, radius);
                 }
-                let _: () = msg_send![window, invalidateShadow];
+                let _: () = msg_send![self.native_window, invalidateShadow];
+            }
+        }
+
+        /// Brings the app forward, for system dialogs (like the file picker)
+        /// that otherwise open without keyboard focus. Showing and hiding
+        /// the panel itself never activates the app.
+        pub fn activate_app() {
+            unsafe {
+                let app: id = msg_send![class!(NSApplication), sharedApplication];
+                let _: () = msg_send![app, activateIgnoringOtherApps: YES];
             }
         }
 
@@ -191,12 +208,12 @@ mod native {
         }
     }
 
-    unsafe fn round_corners(view: id) {
+    unsafe fn round_corners(view: id, radius: f32) {
         unsafe {
             let _: () = msg_send![view, setWantsLayer: YES];
             let layer: id = msg_send![view, layer];
             if layer != nil {
-                let _: () = msg_send![layer, setCornerRadius: CORNER_RADIUS as f64];
+                let _: () = msg_send![layer, setCornerRadius: radius as f64];
                 let _: () = msg_send![layer, setMasksToBounds: YES];
             }
         }
@@ -215,6 +232,10 @@ impl Panel {
     }
 
     pub fn configure(self) {}
+
+    pub fn set_corner_radius(self, _radius: f32) {}
+
+    pub fn activate_app() {}
 
     pub fn set_height(self, _height: f32) {}
 

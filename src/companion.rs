@@ -1,19 +1,20 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString,
-    Subscription, Task, Window, actions, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable, KeyBinding,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels, Point,
+    ScrollHandle, SharedString, Subscription, Task, Window, actions, div, img, prelude::*, px,
 };
 use smol::io::AsyncWriteExt;
 
 use crate::{
+    attachments,
     claude::{self, Event},
     hotkey,
     icon::{Icon, IconButton},
     markdown::DocumentCache,
     message_bubble::MessageBubble,
-    panel::{self, Panel, Placement},
+    panel::{Panel, Placement},
     scroll,
     selection::{Selectable, Selection, TextRegistry},
     settings::Settings,
@@ -35,12 +36,18 @@ const INPUT_LINE_HEIGHT: f32 = 22.;
 const COMPOSER_ROW_GAP: f32 = 4.;
 /// Panel height with no conversation: just the composer, plus the panel's
 /// 1pt border top and bottom.
-const COMPACT_HEIGHT: f32 = theme::COMPACT_INSET * 2.
+const COMPACT_HEIGHT: f32 = theme::COMPOSER_INSET * 2.
     + TEXT_INSET
     + INPUT_LINE_HEIGHT
     + COMPOSER_ROW_GAP
     + theme::BUTTON_SIZE
     + 2.;
+/// Side of an attachment thumbnail in the composer.
+const THUMBNAIL_SIZE: f32 = 52.;
+/// Side of an attached image shown in the transcript.
+const SENT_IMAGE_SIZE: f32 = 120.;
+/// Height of the composer's notice line (e.g. an image too large to attach).
+const NOTICE_HEIGHT: f32 = 18.;
 /// Panel height once there is a conversation.
 const EXPANDED_HEIGHT: f32 = 540.;
 /// Panel height for settings, tall enough to show every section unscrolled.
@@ -126,6 +133,14 @@ pub struct Companion {
     placement_save: Option<Task<()>>,
     /// The panel height last requested, so it is only resized on change.
     height: Option<f32>,
+    /// Images attached to the message being written.
+    attachments: Vec<PathBuf>,
+    /// Why the last attachment failed, shown in the composer.
+    attach_notice: Option<SharedString>,
+    /// The file picker is open: losing focus to it mustn't hide the panel.
+    picking: bool,
+    /// The corner radius last applied to the panel.
+    radius: Option<f32>,
     /// Where the left button went down, while a window drag may still start.
     drag_origin: Option<Point<Pixels>>,
     /// Text drawn in the last frame, for hit-testing selections.
@@ -190,6 +205,10 @@ impl Companion {
             panel,
             placement_save: None,
             height: None,
+            attachments: Vec::new(),
+            attach_notice: None,
+            picking: false,
+            radius: None,
             drag_origin: None,
             text_registry: TextRegistry::default(),
             selection: None,
@@ -258,7 +277,7 @@ impl Companion {
         self.blur_check = Some(cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(BLUR_GRACE).await;
             this.update_in(cx, |companion, window, cx| {
-                if companion.visible && !window.is_window_active() {
+                if companion.visible && !companion.picking && !window.is_window_active() {
                     companion.hide(window, cx);
                 }
             })
@@ -330,7 +349,7 @@ impl Companion {
         self.pending = None;
         self.unsettled = false;
         self.needs_result_text = false;
-        self.state = State::default();
+        self.state.clear();
         self.save();
         self.ensure_session(cx);
         cx.notify();
@@ -406,7 +425,8 @@ impl Companion {
     }
 
     fn can_send(&self, cx: &gpui::App) -> bool {
-        self.pending.is_none() && !self.input.read(cx).text().trim().is_empty()
+        self.pending.is_none()
+            && (!self.attachments.is_empty() || !self.input.read(cx).text().trim().is_empty())
     }
 
     fn submit(&mut self, cx: &mut Context<Self>) {
@@ -415,9 +435,90 @@ impl Companion {
         }
         let prompt = self.input.update(cx, |input, cx| input.take(cx));
         let prompt = prompt.trim();
-        self.state.push(Role::User, prompt);
+        let images = std::mem::take(&mut self.attachments);
+        self.attach_notice = None;
+        self.state
+            .push_with_images(Role::User, prompt, images.clone());
         self.save();
-        self.dispatch(prompt, cx);
+        self.dispatch(prompt, &images, cx);
+    }
+
+    /// Opens the file picker for images. The app is activated so the picker
+    /// gets keyboard focus, and hide-on-blur is held off until it closes.
+    fn pick_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.picking = true;
+        Panel::activate_app();
+        let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Attach".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let paths = picked.await.ok().and_then(Result::ok).flatten();
+            this.update_in(cx, |companion, window, cx| {
+                companion.picking = false;
+                if let Some(paths) = paths {
+                    companion.attach_files(&paths, cx);
+                }
+                companion.show(window, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn attach_files(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        self.attach_notice = None;
+        for path in paths {
+            self.add_attachment(attachments::import_file(path));
+        }
+        cx.notify();
+    }
+
+    fn add_attachment(&mut self, imported: Result<PathBuf, String>) {
+        match imported {
+            Ok(path) => self.attachments.push(path),
+            Err(reason) => self.attach_notice = Some(reason.into()),
+        }
+    }
+
+    fn remove_attachment(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.attachments.len() {
+            attachments::remove([self.attachments.remove(index)]);
+            self.attach_notice = None;
+            cx.notify();
+        }
+    }
+
+    /// ⌘V with no text on the clipboard: attach a copied image instead. The
+    /// input only passes ⌘V on when there's no text to paste.
+    fn paste_image(&mut self, _: &text_input::Paste, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(item) = cx.read_from_clipboard() else {
+            return;
+        };
+        let image = item.entries().iter().find_map(|entry| match entry {
+            gpui::ClipboardEntry::Image(image) => Some(image),
+            _ => None,
+        });
+        let Some(image) = image else {
+            return;
+        };
+        let extension = match image.format {
+            gpui::ImageFormat::Png => "png",
+            gpui::ImageFormat::Jpeg => "jpeg",
+            gpui::ImageFormat::Gif => "gif",
+            gpui::ImageFormat::Webp => "webp",
+            _ => {
+                self.attach_notice =
+                    Some("Only PNG, JPEG, GIF and WebP images can be attached.".into());
+                cx.notify();
+                return;
+            }
+        };
+        self.attach_notice = None;
+        self.add_attachment(attachments::import_bytes(&image.bytes, extension));
+        cx.notify();
     }
 
     /// Asks again for the reply at `index`: drops it and re-sends the user
@@ -435,20 +536,22 @@ impl Companion {
             return;
         };
         let prompt = transcript[question].text.clone();
+        let images = transcript[question].images.clone();
         transcript.truncate(question + 1);
         self.selection = None;
         self.speech = None;
         self.save();
-        self.dispatch(&prompt, cx);
+        self.dispatch(&prompt, &images, cx);
     }
 
-    /// Sends `prompt` to the running session, starting one if needed.
-    fn dispatch(&mut self, prompt: &str, cx: &mut Context<Self>) {
+    /// Sends `prompt` and `images` to the running session, starting one if
+    /// needed.
+    fn dispatch(&mut self, prompt: &str, images: &[PathBuf], cx: &mut Context<Self>) {
         if !self.ensure_session(cx) {
             return;
         }
         let session = self.session.as_mut().expect("session was just ensured");
-        if let Err(error) = session.process.send(prompt) {
+        if let Err(error) = session.process.send(prompt, images) {
             self.session = None;
             self.state
                 .push(Role::Error, format!("Couldn't reach claude: {error}"));
@@ -749,28 +852,53 @@ impl Companion {
         self.view == View::Chat && self.state.transcript.is_empty() && self.pending.is_none()
     }
 
-    /// Resizes the panel to suit the current view.
+    /// The panel's corner radius: the card's in the compact bar, which is
+    /// the card on its own, else the panel's own.
+    fn corner_radius(&self) -> f32 {
+        if self.is_compact() {
+            theme::COMPACT_RADIUS
+        } else {
+            theme::PANEL_RADIUS
+        }
+    }
+
+    /// Resizes the panel (and sets its corner radius) to suit the current
+    /// view.
     fn sync_height(&mut self, cx: &mut Context<Self>) {
         let height = match self.view {
             View::Settings => SETTINGS_HEIGHT,
-            View::Chat if self.is_compact() => COMPACT_HEIGHT,
+            View::Chat if self.is_compact() => {
+                let mut height = COMPACT_HEIGHT;
+                if !self.attachments.is_empty() {
+                    height += THUMBNAIL_SIZE + COMPOSER_ROW_GAP;
+                }
+                if self.attach_notice.is_some() {
+                    height += NOTICE_HEIGHT + COMPOSER_ROW_GAP;
+                }
+                height
+            }
             View::Chat => EXPANDED_HEIGHT,
         };
-        if self.height == Some(height) {
+        let radius = self.corner_radius();
+        if self.height == Some(height) && self.radius == Some(radius) {
             return;
         }
         let Some(panel) = self.panel else {
             return;
         };
         self.height = Some(height);
+        self.radius = Some(radius);
         // AppKit reports the resize to gpui synchronously, and gpui drops the
         // report if it arrives while the app is borrowed, which is true
         // inside any update or `cx.defer`. A spawned task runs on the main
         // queue outside that borrow (as gpui's own `Window::resize` does), and
         // it is queued ahead of the next frame, so the new view and size are
         // drawn together.
-        cx.spawn(async move |_, _| panel.set_height(height))
-            .detach();
+        cx.spawn(async move |_, _| {
+            panel.set_corner_radius(radius);
+            panel.set_height(height);
+        })
+        .detach();
     }
 
     fn render_reply_actions(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
@@ -825,6 +953,31 @@ impl Companion {
                     ))
                     .child(self.render_reply_actions(index, cx))
                     .into_any_element(),
+                Role::User if !message.images.is_empty() => div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap_2()
+                    .child(div().flex().flex_wrap().justify_end().gap_2().children(
+                        // The wrapper fixes the size and clips; an `img`
+                        // sized directly keeps its own aspect ratio.
+                        message.images.iter().map(|path| {
+                            div()
+                                .size(px(SENT_IMAGE_SIZE))
+                                .flex_none()
+                                .rounded(px(14.))
+                                .overflow_hidden()
+                                .child(img(path.clone()).size_full().object_fit(ObjectFit::Cover))
+                        }),
+                    ))
+                    .when(!message.text.is_empty(), |this| {
+                        this.child(MessageBubble::text(
+                            Role::User,
+                            message.text.clone(),
+                            self.selectable(index),
+                        ))
+                    })
+                    .into_any_element(),
                 role => MessageBubble::text(role, message.text.clone(), self.selectable(index))
                     .into_any_element(),
             };
@@ -852,6 +1005,34 @@ impl Companion {
             .into_any_element()
     }
 
+    fn render_thumbnail(&self, index: usize, path: PathBuf, cx: &mut Context<Self>) -> AnyElement {
+        let remove = div()
+            .id(("remove-attachment", index))
+            .absolute()
+            .top(px(3.))
+            .right(px(3.))
+            .size(px(18.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .cursor_pointer()
+            .bg(theme::send_ready_icon())
+            .on_click(cx.listener(move |this, _, _, cx| this.remove_attachment(index, cx)))
+            .child(Icon::Close.render(11., theme::text()));
+        div()
+            .relative()
+            .size(px(THUMBNAIL_SIZE))
+            .flex_none()
+            .rounded(px(10.))
+            .overflow_hidden()
+            .border_1()
+            .border_color(theme::window_border())
+            .child(img(path).size_full().object_fit(ObjectFit::Cover))
+            .child(remove)
+            .into_any_element()
+    }
+
     fn render_composer(&self, compact: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let ready = self.can_send(cx);
         let send = IconButton::new("send", Icon::ArrowUp)
@@ -869,22 +1050,37 @@ impl Companion {
             .items_center()
             .gap_1()
             .child(
-                IconButton::new("new-chat", Icon::Plus)
-                    .on_click(cx.listener(|this, _, _, cx| this.new_chat(cx))),
+                IconButton::new("attach", Icon::Plus)
+                    .on_click(cx.listener(|this, _, window, cx| this.pick_images(window, cx))),
             )
             .child(
                 IconButton::new("open-settings", Icon::Settings)
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_settings(window, cx))),
             );
 
-        // Compact, the panel is the card; expanded, the card is inset in it.
-        // Either way the buttons sit `inset` from the edge whose radius is
-        // theirs plus `inset`.
-        let inset = if compact {
-            theme::COMPACT_INSET
-        } else {
-            theme::COMPOSER_INSET
-        };
+        // Compact, the panel is the card (at the card's radius); expanded,
+        // the card is inset in it. Either way the buttons sit the card's
+        // inset from an edge whose radius is theirs plus that inset.
+        let inset = theme::COMPOSER_INSET;
+        let mut thumbnails = Vec::with_capacity(self.attachments.len());
+        for (index, path) in self.attachments.iter().enumerate() {
+            thumbnails.push(self.render_thumbnail(index, path.clone(), cx));
+        }
+        let thumbnails = (!thumbnails.is_empty()).then(|| {
+            div()
+                .flex()
+                .gap_2()
+                .px(px(inset + TEXT_INSET))
+                .children(thumbnails)
+        });
+        let notice = self.attach_notice.clone().map(|notice| {
+            div()
+                .h(px(NOTICE_HEIGHT))
+                .px(px(inset + TEXT_INSET))
+                .text_size(px(12.))
+                .text_color(theme::error())
+                .child(notice)
+        });
         div()
             .flex_none()
             .flex()
@@ -899,10 +1095,12 @@ impl Companion {
                     .border_1()
                     .border_color(theme::window_border())
             })
+            .pt(px(inset + TEXT_INSET))
+            .children(thumbnails)
+            .children(notice)
             .child(
                 div()
                     .px(px(inset + TEXT_INSET))
-                    .pt(px(inset + TEXT_INSET))
                     .text_size(px(16.))
                     .line_height(px(INPUT_LINE_HEIGHT))
                     .child(self.input.clone()),
@@ -979,10 +1177,14 @@ impl Render for Companion {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_action(cx.listener(Self::copy_selection))
+            .on_action(cx.listener(Self::paste_image))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                this.attach_files(paths.paths(), cx)
+            }))
             .size_full()
             .flex()
             .flex_col()
-            .rounded(px(panel::CORNER_RADIUS))
+            .rounded(px(self.corner_radius()))
             .border_1()
             .border_color(theme::window_border())
             .bg(theme::background())

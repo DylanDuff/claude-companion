@@ -210,8 +210,10 @@ impl TextInput {
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_range(None, &text.replace("\n", " "), window, cx);
+        match cx.read_from_clipboard().and_then(|item| item.text()) {
+            Some(text) => self.replace_text_in_range(None, &text.replace("\n", " "), window, cx),
+            // No text (e.g. a copied image): let the panel handle it.
+            None => cx.propagate(),
         }
     }
 

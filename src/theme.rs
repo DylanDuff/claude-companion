@@ -12,9 +12,10 @@ pub const COMPOSER_RADIUS: f32 = BUTTON_SIZE / 2. + COMPOSER_INSET;
 /// Gap from the panel's edge to the composer card.
 pub const COMPOSER_MARGIN: f32 = 8.;
 pub const PANEL_RADIUS: f32 = COMPOSER_RADIUS + COMPOSER_MARGIN;
-/// In the compact bar the panel itself is the composer, so its buttons sit
-/// this far in to stay concentric with the panel's corners.
-pub const COMPACT_INSET: f32 = PANEL_RADIUS - BUTTON_SIZE / 2.;
+/// The compact bar is the composer card on its own, at the card's scale:
+/// the panel shrinks to the card's inset and takes the card's radius, so the
+/// bar matches the card shown under a chat.
+pub const COMPACT_RADIUS: f32 = COMPOSER_RADIUS;
 
 // The window is blurred (`WindowBackgroundAppearance::Blurred`), so the
 // background and the surfaces on it are partly transparent to let it show.

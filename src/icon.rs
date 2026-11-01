@@ -49,6 +49,7 @@ macro_rules! icons {
 icons!(
     ArrowUp => "arrow-up.svg",
     Check => "check.svg",
+    Close => "close.svg",
     ChevronLeft => "chevron-left.svg",
     Copy => "copy.svg",
     Plus => "plus.svg",

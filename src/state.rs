@@ -1,8 +1,11 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::storage;
+use crate::{attachments, storage};
 
 const FILE: &str = "state.json";
 
@@ -18,6 +21,9 @@ pub enum Role {
 pub struct Message {
     pub role: Role,
     pub text: String,
+    /// Attached images, as copies in the attachments folder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<PathBuf>,
 }
 
 /// The conversation, persisted between launches as `state.json`.
@@ -39,10 +45,25 @@ impl State {
     }
 
     pub fn push(&mut self, role: Role, text: impl Into<String>) {
+        self.push_with_images(role, text, Vec::new());
+    }
+
+    pub fn push_with_images(&mut self, role: Role, text: impl Into<String>, images: Vec<PathBuf>) {
         self.transcript.push(Message {
             role,
             text: text.into(),
+            images,
         });
+    }
+
+    /// Starts a new conversation, deleting the old one's attachments.
+    pub fn clear(&mut self) {
+        let old = std::mem::take(self);
+        attachments::remove(
+            old.transcript
+                .into_iter()
+                .flat_map(|message| message.images),
+        );
     }
 
     pub fn touch(&mut self) {
@@ -62,7 +83,7 @@ impl State {
     pub fn expire_if_stale(&mut self, timeout: Duration) -> bool {
         let stale = self.is_stale(timeout);
         if stale {
-            *self = State::default();
+            self.clear();
         }
         stale
     }

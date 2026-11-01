@@ -1,3 +1,4 @@
+mod attachments;
 mod claude;
 mod code_theme;
 mod companion;

@@ -6,6 +6,8 @@ description = "Floating chat window for Claude Code, toggled with a global hotke
 publish = false
 
 [dependencies]
+# Image attachments are sent base64-encoded; already in the tree via gpui.
+base64 = "0.22"
 # Official Zed-published GPUI. Keep any gpui-component style crates out: they
 # build on a different GPUI fork (gpui-pre) whose types don't interoperate.
 # runtime_shaders compiles Metal shaders at launch, so building doesn't need

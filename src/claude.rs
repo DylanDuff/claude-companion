@@ -120,10 +120,24 @@ pub fn start(settings: &Settings, session_id: Option<&str>) -> Result<(Process, 
 impl Process {
     /// Queues a user message. The CLI handles one turn at a time, so a
     /// message sent before the previous turn settles waits for it.
-    pub fn send(&mut self, prompt: &str) -> io::Result<()> {
+    pub fn send(&mut self, prompt: &str, images: &[std::path::PathBuf]) -> io::Result<()> {
+        // Plain text stays a string; with images, the content is a list of
+        // image blocks followed by the text.
+        let content = if images.is_empty() {
+            json!(prompt)
+        } else {
+            let mut blocks = images
+                .iter()
+                .map(|path| crate::attachments::content_block(path))
+                .collect::<io::Result<Vec<_>>>()?;
+            if !prompt.is_empty() {
+                blocks.push(json!({ "type": "text", "text": prompt }));
+            }
+            json!(blocks)
+        };
         let message = json!({
             "type": "user",
-            "message": { "role": "user", "content": prompt },
+            "message": { "role": "user", "content": content },
         });
         writeln!(self.stdin, "{message}")?;
         self.stdin.flush()
