@@ -107,7 +107,9 @@
 - **Bottom fade:** gpui has no gradient masks, so `render_chat_area`
   overlays a gradient from transparent to the panel's own tint over the
   chat's bottom `CHAT_BOTTOM_PADDING`. Text dims as it scrolls under the
-  composer, while text at rest (above the padding) is untouched.
+  composer, while text at rest (above the padding) is untouched. The
+  composer's area, margins included, carries the same tint, so the fade
+  blends into it rather than ending in a visible line beside the card.
 - **The chat clips at the composer's top edge:** the gap above the card is
   the chat's bottom padding, not the card's top margin, so messages scroll
   right down to the card.

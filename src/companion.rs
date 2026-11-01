@@ -1116,7 +1116,9 @@ impl Companion {
     /// The chat with a soft fade at its bottom edge, so text dims as it
     /// scrolls under the composer. gpui has no gradient masks, so this is an
     /// overlay fading to the panel's own tint. It spans only the chat's
-    /// bottom padding, leaving text at rest untouched.
+    /// bottom padding, leaving text at rest untouched. The composer's area
+    /// below carries the same tint, so the fade blends into it rather than
+    /// ending in a line.
     fn render_chat_area(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let tint = Hsla::from(theme::background());
         let fade = div()
@@ -1394,7 +1396,15 @@ impl Render for Companion {
                         ),
                 )
                 .child(self.render_chat_area(cx))
-                .child(self.render_composer(false, cx))
+                .child(
+                    // Carries the fade's final tint down behind the composer
+                    // and its margins, so the fade has no edge beside the
+                    // card.
+                    div()
+                        .flex_none()
+                        .bg(theme::background())
+                        .child(self.render_composer(false, cx)),
+                )
                 .into_any_element(),
         };
 
