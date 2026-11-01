@@ -45,10 +45,6 @@ pub fn selection() -> Rgba {
     rgba(0xd9775750)
 }
 
-pub fn code_background() -> Rgba {
-    rgba(0x1e1e1ef2)
-}
-
 pub fn inline_code() -> Rgba {
     rgb(0xf2f2f4)
 }

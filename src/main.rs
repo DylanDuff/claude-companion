@@ -1,4 +1,5 @@
 mod claude;
+mod code_theme;
 mod companion;
 mod highlight;
 mod hotkey;
@@ -15,7 +16,6 @@ mod storage;
 mod switch;
 mod text_input;
 mod theme;
-mod zed_theme;
 
 use gpui::{
     App, AppContext, Application, Bounds, KeyBinding, WindowBackgroundAppearance, WindowBounds,

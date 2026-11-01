@@ -9,7 +9,8 @@ use gpui::{
 };
 
 use crate::{
-    highlight::{self, Highlight},
+    code_theme,
+    highlight::Highlight,
     icon::Icon,
     markdown::{Block, Document, Inline, Marks},
     theme,
@@ -184,10 +185,7 @@ impl RenderContext {
         ));
         div()
             .rounded(px(14.))
-            .map(|this| match highlight::code_background() {
-                Some(color) => this.bg(rgb(color)),
-                None => this.bg(theme::code_background()),
-            })
+            .bg(rgb(code_theme::BACKGROUND))
             .px_4()
             .pt_3()
             .pb_4()

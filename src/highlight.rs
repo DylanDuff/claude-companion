@@ -1,20 +1,16 @@
 //! Syntax highlighting for code blocks, via syntect's bundled Sublime Text
-//! grammars. Colours come from the user's Zed theme when it can be found
-//! (`zed_theme.rs`), else a bundled theme.
+//! grammars and the built-in Catppuccin Macchiato theme (`code_theme.rs`).
 
 use std::{ops::Range, sync::OnceLock};
 
 use syntect::{
     easy::HighlightLines,
-    highlighting::{FontStyle, Theme, ThemeSet},
+    highlighting::{FontStyle, Theme},
     parsing::SyntaxSet,
     util::LinesWithEndings,
 };
 
-use crate::zed_theme;
-
-/// Used when no Zed theme is found.
-const FALLBACK_THEME: &str = "base16-ocean.dark";
+use crate::code_theme;
 
 /// How a run of code is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,40 +27,15 @@ pub type Highlight = (Range<usize>, Paint);
 struct Assets {
     syntaxes: SyntaxSet,
     theme: Theme,
-    /// The Zed theme's editor background, if a Zed theme is in use.
-    background: Option<u32>,
 }
 
 static ASSETS: OnceLock<Assets> = OnceLock::new();
 
 fn assets() -> &'static Assets {
-    ASSETS.get_or_init(|| {
-        let syntaxes = SyntaxSet::load_defaults_newlines();
-        match zed_theme::load() {
-            Some(zed) => Assets {
-                syntaxes,
-                theme: zed.syntax,
-                background: zed.background,
-            },
-            None => {
-                let mut themes = ThemeSet::load_defaults();
-                Assets {
-                    syntaxes,
-                    theme: themes
-                        .themes
-                        .remove(FALLBACK_THEME)
-                        .expect("bundled theme exists"),
-                    background: None,
-                }
-            }
-        }
+    ASSETS.get_or_init(|| Assets {
+        syntaxes: SyntaxSet::load_defaults_newlines(),
+        theme: code_theme::catppuccin_macchiato(),
     })
-}
-
-/// Background for code blocks: the Zed theme's editor background, so its
-/// colours sit on the surface they were designed for.
-pub fn code_background() -> Option<u32> {
-    assets().background
 }
 
 /// Loads the grammars on a background thread so the first code block
