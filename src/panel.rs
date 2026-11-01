@@ -7,7 +7,7 @@
 //! and returns focus to the previous app on hide.
 
 /// Corner radius of the panel, matched by the root element's border.
-pub const CORNER_RADIUS: f32 = 22.;
+pub const CORNER_RADIUS: f32 = crate::theme::PANEL_RADIUS;
 
 const PLACEMENT_FILE: &str = "window.json";
 

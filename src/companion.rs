@@ -27,8 +27,19 @@ const CONTEXT: &str = "Companion";
 /// How long focus must stay elsewhere before hide-on-blur hides the panel.
 const BLUR_GRACE: Duration = Duration::from_millis(150);
 
-/// Panel height with no conversation: just the composer.
-const COMPACT_HEIGHT: f32 = 96.;
+/// Composer text sits this far inside the buttons' inset, lining up with
+/// the icons drawn inside the buttons.
+const TEXT_INSET: f32 = 8.;
+const INPUT_LINE_HEIGHT: f32 = 22.;
+const COMPOSER_ROW_GAP: f32 = 4.;
+/// Panel height with no conversation: just the composer, plus the panel's
+/// 1pt border top and bottom.
+const COMPACT_HEIGHT: f32 = theme::COMPACT_INSET * 2.
+    + TEXT_INSET
+    + INPUT_LINE_HEIGHT
+    + COMPOSER_ROW_GAP
+    + theme::BUTTON_SIZE
+    + 2.;
 /// Panel height once there is a conversation.
 const EXPANDED_HEIGHT: f32 = 540.;
 /// Panel height for settings, tall enough to show every section unscrolled.
@@ -785,25 +796,33 @@ impl Companion {
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_settings(window, cx))),
             );
 
+        // Compact, the panel is the card; expanded, the card is inset in it.
+        // Either way the buttons sit `inset` from the edge whose radius is
+        // theirs plus `inset`.
+        let inset = if compact {
+            theme::COMPACT_INSET
+        } else {
+            theme::COMPOSER_INSET
+        };
         div()
             .flex_none()
             .flex()
             .flex_col()
-            .gap_1()
+            .gap(px(COMPOSER_ROW_GAP))
             .when(compact, |this| this.size_full().justify_between())
             .when(!compact, |this| {
-                this.m_3()
-                    .rounded(px(20.))
+                this.m(px(theme::COMPOSER_MARGIN))
+                    .rounded(px(theme::COMPOSER_RADIUS))
                     .bg(theme::surface())
                     .border_1()
                     .border_color(theme::window_border())
             })
             .child(
                 div()
-                    .px_4()
-                    .pt_4()
+                    .px(px(inset + TEXT_INSET))
+                    .pt(px(inset + TEXT_INSET))
                     .text_size(px(16.))
-                    .line_height(px(22.))
+                    .line_height(px(INPUT_LINE_HEIGHT))
                     .child(self.input.clone()),
             )
             .child(
@@ -811,8 +830,8 @@ impl Companion {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .px_2()
-                    .pb_2()
+                    .px(px(inset))
+                    .pb(px(inset))
                     .child(tools)
                     .child(send),
             )

@@ -89,7 +89,7 @@ impl IconButton {
         Self {
             id: id.into(),
             icon,
-            size: 36.,
+            size: theme::BUTTON_SIZE,
             icon_size: 20.,
             color: theme::text().into(),
             background: None,
