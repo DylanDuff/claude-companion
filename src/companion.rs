@@ -59,6 +59,13 @@ const SETTINGS_HEIGHT: f32 = 720.;
 /// so plain clicks still reach buttons.
 const DRAG_THRESHOLD: f32 = 4.;
 
+/// After a drag, edges of the screen within this distance pull the panel
+/// in, leaving `SNAP_GAP` between it and the edge.
+const SNAP_REACH: f64 = 40.;
+const SNAP_GAP: f64 = 12.;
+/// How often to check whether the button is still held after a drag pauses.
+const RELEASE_POLL: Duration = Duration::from_millis(50);
+
 /// How long the panel must stay put before its position is saved.
 const PLACEMENT_SAVE_DELAY: Duration = Duration::from_millis(400);
 
@@ -163,6 +170,8 @@ pub struct Companion {
     panel: Option<Panel>,
     /// Saves the panel's position once it stops moving.
     placement_save: Option<Task<()>>,
+    /// The user dragged the panel and it hasn't snapped to the edges yet.
+    dragged: bool,
     /// The panel height last requested, so it is only resized on change.
     height: Option<f32>,
     /// Images attached to the message being written.
@@ -240,6 +249,7 @@ impl Companion {
             copied_reset: None,
             panel,
             placement_save: None,
+            dragged: false,
             height: None,
             attachments: Vec::new(),
             attach_notice: None,
@@ -325,12 +335,32 @@ impl Companion {
 
     /// Saves the panel's position once it has stayed put briefly, so a drag
     /// writes the file once rather than on every step.
+    ///
+    /// After a user drag, it first waits for the button's release (macOS
+    /// performs the drag, so there's no mouse-up to listen for) and snaps
+    /// the panel to nearby screen edges; that move schedules the save.
+    /// Resizes alone never snap.
     fn schedule_placement_save(&mut self, cx: &mut Context<Self>) {
         let Some(panel) = self.panel else {
             return;
         };
-        self.placement_save = Some(cx.spawn(async move |_, cx| {
+        self.placement_save = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(PLACEMENT_SAVE_DELAY).await;
+            while this
+                .update(cx, |companion, _| companion.dragged)
+                .unwrap_or(false)
+            {
+                if Panel::left_button_down() {
+                    cx.background_executor().timer(RELEASE_POLL).await;
+                    continue;
+                }
+                this.update(cx, |companion, _| companion.dragged = false)
+                    .ok();
+                // Run outside any gpui update, so gpui hears about the move.
+                if panel.snap_to_edges(SNAP_REACH, SNAP_GAP) {
+                    return;
+                }
+            }
             panel.placement().save();
         }));
     }
@@ -913,6 +943,7 @@ impl Companion {
         if moved.x.abs() > px(DRAG_THRESHOLD) || moved.y.abs() > px(DRAG_THRESHOLD) {
             self.drag_origin = None;
             if let Some(panel) = self.panel {
+                self.dragged = true;
                 panel.begin_drag();
             }
         }

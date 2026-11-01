@@ -147,6 +147,13 @@
   the input's mouse-down: gpui runs an element's listeners in reverse, so
   that also cancels the input's own click-to-focus.) gpui's `start_window_move` is a no-op
   on macOS, hence the native call.
+- **Edge snapping:** after a user drag (not after the panel resizes
+  itself), once the button is released, `Panel::snap_to_edges` pulls in any
+  edge of the screen's usable area within `SNAP_REACH` (40pt), leaving
+  `SNAP_GAP` (12pt), animated. macOS performs the drag, so there's no
+  mouse-up event. `schedule_placement_save` waits for the moves to settle,
+  then polls `Panel::left_button_down` until release. The snap's own move
+  schedules the save, so the snapped spot is what's remembered.
 - **Remembered position:** the panel's bottom-left corner (AppKit
   coordinates, since the bottom edge is what stays put) is saved to
   `window.json` 400ms after it stops moving (`observe_window_bounds`,

@@ -154,6 +154,49 @@ mod native {
             }
         }
 
+        /// Moves the panel `gap` in from any edge of the screen's usable area
+        /// (no menu bar or Dock) that it's within `reach` of, animated, so it
+        /// sits neatly against that edge. Returns whether it moved.
+        pub fn snap_to_edges(self, reach: f64, gap: f64) -> bool {
+            unsafe {
+                let window = self.native_window;
+                let screen: id = msg_send![window, screen];
+                if screen == nil {
+                    return false;
+                }
+                let area: NSRect = msg_send![screen, visibleFrame];
+                let frame: NSRect = msg_send![window, frame];
+                let snap = |position: f64, low: f64, high: f64, size: f64| {
+                    let (start, end) = (low + gap, high - gap - size);
+                    if (position - start).abs() <= reach {
+                        start
+                    } else if (position - end).abs() <= reach {
+                        end
+                    } else {
+                        position
+                    }
+                };
+                let x = snap(
+                    frame.origin.x,
+                    area.origin.x,
+                    area.origin.x + area.size.width,
+                    frame.size.width,
+                );
+                let y = snap(
+                    frame.origin.y,
+                    area.origin.y,
+                    area.origin.y + area.size.height,
+                    frame.size.height,
+                );
+                if x == frame.origin.x && y == frame.origin.y {
+                    return false;
+                }
+                let target = NSRect::new(NSPoint::new(x, y), frame.size);
+                let _: () = msg_send![window, setFrame: target display: YES animate: YES];
+                true
+            }
+        }
+
         /// Hands the current mouse drag to the window server, which moves
         /// the window until the button is released. gpui's
         /// `start_window_move` is a no-op on macOS.
@@ -251,6 +294,10 @@ impl Panel {
     pub fn set_height(self, _height: f32) {}
 
     pub fn begin_drag(self) {}
+
+    pub fn snap_to_edges(self, _reach: f64, _gap: f64) -> bool {
+        false
+    }
 
     pub fn placement(self) -> Placement {
         Placement { x: 0., bottom: 0. }
