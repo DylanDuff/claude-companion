@@ -1,6 +1,9 @@
 mod claude;
 mod companion;
+mod highlight;
 mod hotkey;
+mod markdown;
+mod markdown_view;
 mod message_bubble;
 mod panel;
 mod segmented;
@@ -12,8 +15,8 @@ mod text_input;
 mod theme;
 
 use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowKind,
-    WindowOptions, actions, px, size,
+    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WindowBackgroundAppearance,
+    WindowBounds, WindowKind, WindowOptions, actions, px, size,
 };
 
 use crate::{companion::Companion, settings::Settings};
@@ -23,6 +26,7 @@ actions!(app, [Quit]);
 fn main() {
     Application::new().run(|cx: &mut App| {
         hide_from_dock();
+        highlight::preload();
 
         cx.bind_keys(text_input::key_bindings());
         cx.bind_keys(companion::key_bindings());

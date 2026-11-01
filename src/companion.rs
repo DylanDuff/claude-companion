@@ -8,6 +8,7 @@ use gpui::{
 use crate::{
     claude::{self, Event},
     hotkey,
+    markdown::DocumentCache,
     message_bubble::MessageBubble,
     panel,
     settings::{Choice, Settings},
@@ -74,6 +75,7 @@ pub struct Companion {
     settings_panel: Entity<SettingsPanel>,
     focus_handle: FocusHandle,
     scroll: ScrollHandle,
+    documents: DocumentCache,
     visible: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -113,6 +115,7 @@ impl Companion {
             settings_panel,
             focus_handle: cx.focus_handle(),
             scroll: ScrollHandle::new(),
+            documents: DocumentCache::default(),
             visible: false,
             _subscriptions: subscriptions,
         }
@@ -443,7 +446,7 @@ impl Companion {
         }
     }
 
-    fn render_chat(&self) -> AnyElement {
+    fn render_chat(&mut self) -> AnyElement {
         if self.state.transcript.is_empty() && self.pending.is_none() {
             return div()
                 .flex_1()
@@ -458,11 +461,25 @@ impl Companion {
                 ))
                 .into_any_element();
         }
-        let messages = self
+        let documents = &mut self.documents;
+        let messages: Vec<MessageBubble> = self
             .state
             .transcript
             .iter()
-            .map(|message| MessageBubble::new(message.role, message.text.clone()));
+            .enumerate()
+            .map(|(index, message)| match message.role {
+                Role::Assistant => MessageBubble::markdown(
+                    format!("message-{index}"),
+                    documents.get(&message.text),
+                ),
+                role => MessageBubble::text(role, message.text.clone()),
+            })
+            .collect();
+        let pending = self
+            .pending
+            .as_ref()
+            .map(|pending| render_pending(pending, documents));
+        documents.sweep();
         div()
             .id("transcript")
             .flex_1()
@@ -474,7 +491,7 @@ impl Companion {
             .flex_col()
             .gap_3()
             .children(messages)
-            .children(self.pending.as_ref().map(render_pending))
+            .children(pending)
             .into_any_element()
     }
 
@@ -497,7 +514,7 @@ impl Companion {
     }
 }
 
-fn render_pending(pending: &Pending) -> AnyElement {
+fn render_pending(pending: &Pending, documents: &mut DocumentCache) -> AnyElement {
     let status = pending.status.clone().unwrap_or_else(|| "Thinking…".into());
     let status_line = div()
         .text_xs()
@@ -506,7 +523,7 @@ fn render_pending(pending: &Pending) -> AnyElement {
     if pending.reply.is_empty() {
         return status_line.into_any_element();
     }
-    let bubble = MessageBubble::new(Role::Assistant, pending.reply.clone());
+    let bubble = MessageBubble::markdown("pending", documents.get(&pending.reply));
     div()
         .flex()
         .flex_col()

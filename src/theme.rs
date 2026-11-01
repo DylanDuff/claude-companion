@@ -39,3 +39,15 @@ pub fn error() -> Rgba {
 pub fn selection() -> Rgba {
     rgba(0xd9775750)
 }
+
+pub fn code_background() -> Rgba {
+    rgb(0x17171a)
+}
+
+pub fn inline_code() -> Rgba {
+    rgb(0xebcb8b)
+}
+
+pub fn link() -> Rgba {
+    rgb(0x8fb8f0)
+}

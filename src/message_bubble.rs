@@ -1,20 +1,31 @@
-use gpui::{App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px};
+use std::rc::Rc;
 
-use crate::{state::Role, theme};
+use gpui::{
+    AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
+};
 
-/// One transcript entry. User messages sit right in a filled bubble;
-/// replies and errors run full width.
+use crate::{markdown::Document, markdown_view::MarkdownView, state::Role, theme};
+
+/// One transcript entry. User messages sit right in a filled bubble as plain
+/// text; replies render as Markdown and errors as plain text, full width.
 #[derive(IntoElement)]
 pub struct MessageBubble {
     role: Role,
-    text: SharedString,
+    content: AnyElement,
 }
 
 impl MessageBubble {
-    pub fn new(role: Role, text: impl Into<SharedString>) -> Self {
+    pub fn text(role: Role, text: impl Into<SharedString>) -> Self {
         Self {
             role,
-            text: text.into(),
+            content: text.into().into_any_element(),
+        }
+    }
+
+    pub fn markdown(id: impl Into<SharedString>, document: Rc<Document>) -> Self {
+        Self {
+            role: Role::Assistant,
+            content: MarkdownView::new(id, document).into_any_element(),
         }
     }
 }
@@ -22,7 +33,7 @@ impl MessageBubble {
 impl RenderOnce for MessageBubble {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let row = div().flex().w_full();
-        let bubble = div().text_sm().line_height(px(20.)).child(self.text);
+        let bubble = div().text_sm().line_height(px(20.)).child(self.content);
         match self.role {
             Role::User => row.justify_end().child(
                 bubble
@@ -32,7 +43,7 @@ impl RenderOnce for MessageBubble {
                     .rounded_lg()
                     .bg(theme::user_bubble()),
             ),
-            Role::Assistant => row.child(bubble.w_full()),
+            Role::Assistant => row.child(bubble.w_full().min_w_0()),
             Role::Error => row.child(bubble.w_full().text_color(theme::error())),
         }
     }
