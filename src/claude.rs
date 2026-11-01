@@ -37,6 +37,31 @@ pub enum Event {
     },
 }
 
+/// Tells Claude where it is running. Without it, Claude Code assumes a
+/// terminal coding session and talks about the working directory, files and
+/// shell commands it can't reach here.
+///
+/// Keep this text fixed: the CLI records the system prompt once per
+/// conversation and reuses it verbatim on resume, so anything that varies
+/// (like which web tools are on) would go stale. The real tool list arrives
+/// through `--tools` on every launch.
+const COMPANION_CONTEXT: &str = "\
+You are running inside Claude Companion, a small floating chat window on the \
+user's Mac that they open with a global keyboard shortcut for quick \
+questions. This is not a terminal or coding session: you have no shell, no \
+file system access and no project. The working directory is an empty \
+placeholder, so never mention it, and never suggest running commands for the \
+user as if you could, or offer to read or edit their files.
+
+Use only the tools you are actually given. Web search and page reading may \
+be available, or switched off, and nothing else is.
+
+Replies render as Markdown in a narrow panel about 440 points wide: \
+headings, lists, tables, links and fenced code blocks with syntax \
+highlighting. Keep answers concise and conversational. Prefer short \
+paragraphs and lists, keep tables to a few narrow columns, and label code \
+blocks with their language.";
+
 /// The running CLI. Dropping it kills the process.
 pub struct Process {
     child: Child,
@@ -64,6 +89,7 @@ pub fn start(settings: &Settings, session_id: Option<&str>) -> Result<(Process, 
         // pre-approves the enabled ones, since nobody can answer a prompt.
         .args(["--tools", &tools])
         .arg("--strict-mcp-config")
+        .args(["--append-system-prompt", COMPANION_CONTEXT])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
