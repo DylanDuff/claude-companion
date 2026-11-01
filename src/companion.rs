@@ -338,20 +338,6 @@ impl Companion {
         }
     }
 
-    /// Switches web search and page reading together: off if either is on.
-    fn toggle_web(&mut self, cx: &mut Context<Self>) {
-        let enabled = !(self.settings.web_search || self.settings.web_fetch);
-        let settings = Settings {
-            web_search: enabled,
-            web_fetch: enabled,
-            ..self.settings.clone()
-        };
-        self.settings_panel
-            .update(cx, |panel, cx| panel.reset(settings.clone(), None, cx));
-        self.apply_settings(settings, cx);
-        cx.notify();
-    }
-
     /// Applies pending CLI flag changes by restarting Claude on the same
     /// conversation, once no reply is running.
     fn restart_if_idle(&mut self, cx: &mut Context<Self>) {
@@ -775,7 +761,6 @@ impl Companion {
     }
 
     fn render_composer(&self, compact: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let web_on = self.settings.web_search || self.settings.web_fetch;
         let ready = self.can_send(cx);
         let send = IconButton::new("send", Icon::ArrowUp)
             .when(ready, |this| {
@@ -794,15 +779,6 @@ impl Companion {
             .child(
                 IconButton::new("new-chat", Icon::Plus)
                     .on_click(cx.listener(|this, _, _, cx| this.new_chat(cx))),
-            )
-            .child(
-                IconButton::new("toggle-web", Icon::Globe)
-                    .color(if web_on {
-                        theme::link().into()
-                    } else {
-                        theme::muted_text()
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_web(cx))),
             )
             .child(
                 IconButton::new("open-settings", Icon::Settings)

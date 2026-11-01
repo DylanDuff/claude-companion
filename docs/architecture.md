@@ -62,10 +62,9 @@
   from it. `Panel::show` also makes gpui's view first responder, because
   changing the style mask can leave the window itself as first responder,
   and then keystrokes never reach gpui.
-- Composer row: **+** new chat, **globe** toggles web search and page
-  reading together (blue when on; the same settings as the Settings page,
-  restarting `claude` once idle), **sliders** open Settings, and the
-  **send** button (light when there's text to send).
+- Composer row: **+** new chat, **sliders** open Settings (web access is
+  switched there), and the **send** button (light when there's text to
+  send).
 - Under each reply: **Copy** (raw Markdown; shows a tick for 1.5s),
   **Read aloud** (`/usr/bin/say -f -` fed the document's
   `plain_text()`, code blocks skipped; click again to stop, as dropping the

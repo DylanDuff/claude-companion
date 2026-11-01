@@ -51,7 +51,6 @@ icons!(
     Check => "check.svg",
     ChevronLeft => "chevron-left.svg",
     Copy => "copy.svg",
-    Globe => "globe.svg",
     Plus => "plus.svg",
     Retry => "retry.svg",
     Settings => "settings.svg",

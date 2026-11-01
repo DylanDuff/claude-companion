@@ -8,9 +8,8 @@ you open it you start fresh.
 The companion can search and read the web (`WebSearch`, `WebFetch`) but has no
 other tools and no MCP servers. It defaults to Sonnet at low effort for quick
 replies. Change the model, effort, web tools, idle timeout, shortcut and
-click-away behaviour from the sliders icon in the composer. The globe icon
-switches web access on and off, and each reply can be copied, read aloud or
-retried.
+click-away behaviour from the sliders icon in the composer. Each reply can be
+copied, read aloud or retried.
 
 ## Run
 
