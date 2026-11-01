@@ -68,6 +68,11 @@ const AUTOSCROLL_ZONE: f32 = 28.;
 const AUTOSCROLL_MAX_STEP: f32 = 24.;
 const AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(16);
 
+/// Height of the bar above the chat that holds the close button.
+const TOP_BAR_HEIGHT: f32 = 40.;
+/// Gap from the panel's left edge to the close button.
+const CLOSE_INSET: f32 = 10.;
+
 /// How long a Copy button shows its tick.
 const COPIED_FEEDBACK: Duration = Duration::from_millis(1500);
 
@@ -734,6 +739,13 @@ impl Companion {
         }
     }
 
+    /// Discards the conversation and hides the panel, so the next show
+    /// starts fresh with the compact bar.
+    fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_chat(cx);
+        self.hide(window, cx);
+    }
+
     /// Where message `index`'s text registers, with its part of the
     /// selection highlighted.
     fn selectable(&self, index: usize) -> Selectable {
@@ -1116,7 +1128,7 @@ impl Companion {
         scroll::lock_axis(div().id("transcript").flex_1().overflow_y_scroll())
             .track_scroll(&self.scroll)
             .px_6()
-            .pt_6()
+            .pt_2()
             // The space above the composer lives here rather than as the
             // card's top margin, so scrolled messages clip right at the
             // card's edge instead of a margin's width above it.
@@ -1285,18 +1297,32 @@ impl Render for Companion {
         // frame.
         self.sync_height(cx);
         let compact = self.is_compact();
-        let content = match self.view {
-            View::Settings => self.settings_panel.clone().into_any_element(),
-            View::Chat if compact => self.render_composer(true, cx).into_any_element(),
-            View::Chat => div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .child(self.render_chat(cx))
-                .child(self.render_composer(false, cx))
-                .into_any_element(),
-        };
+        let content =
+            match self.view {
+                View::Settings => self.settings_panel.clone().into_any_element(),
+                View::Chat if compact => self.render_composer(true, cx).into_any_element(),
+                View::Chat => div()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        // Its own bar, so scrolled text and pinned code headers
+                        // stop below the button instead of passing under it.
+                        div()
+                            .flex_none()
+                            .h(px(TOP_BAR_HEIGHT))
+                            .flex()
+                            .items_center()
+                            .pl(px(CLOSE_INSET))
+                            .child(IconButton::new("close", Icon::Close).small().on_click(
+                                cx.listener(|this, _, window, cx| this.close(window, cx)),
+                            )),
+                    )
+                    .child(self.render_chat(cx))
+                    .child(self.render_composer(false, cx))
+                    .into_any_element(),
+            };
 
         div()
             .key_context(CONTEXT)
