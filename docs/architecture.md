@@ -33,7 +33,9 @@
 4. On hide, an idle timer is armed. If the window is still hidden and no
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.
-5. ⌘N starts a new chat. ⌘Q quits.
+5. ⌘N starts a new chat. The **×** at the top left (in a 40pt bar above
+   the chat, shown once a chat has started) closes: it clears the
+   conversation and hides, so the next show starts fresh. ⌘Q quits.
 
 ## Layout (`companion.rs`)
 
@@ -313,8 +315,14 @@ Assistant replies render as Markdown; user messages and errors stay plain.
     shifts it down to the top of the visible chat (the content mask) while
     the block is partly scrolled away, stopping at the block's bottom. It
     shifts before the header's prepaint, so the Copy button's hitbox moves
-    with it. The header is opaque and painted after the body, so it covers
-    the code when pinned.
+    with it. The element paints the header's background itself, after the
+    body. Its top corners are rounded to match the card in place and square
+    once pinned, since rounded corners mid-card let scrolled code show
+    through.
+  - **Copied state:** `MarkdownView` is rebuilt every frame and holds no
+    state, so `Companion` passes a `CodeCopy` (the copied block's key and an
+    `on_copy` listener). Reply and code copies share one `Copied` state, and
+    `flash_copied` shows the tick for 1.5s.
   - **Edge-to-edge scrolling:** the card has no padding. The code's padding
     is inside the scrolled content, so code rests inset but scrolls all the
     way to the card's edges. The code is a non-shrinking flex item;
