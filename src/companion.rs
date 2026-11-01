@@ -189,7 +189,7 @@ impl Companion {
                 },
             ),
             cx.observe_window_activation(window, |this, window, cx| {
-                if !window.is_window_active() && this.settings.hide_on_blur {
+                if !window.is_window_active() && this.hides_on_blur() {
                     this.hide_after_blur(window, cx);
                 }
             }),
@@ -925,8 +925,19 @@ impl Companion {
         }));
     }
 
+    /// No message sent and no reply streaming yet.
+    fn chat_started(&self) -> bool {
+        !self.state.transcript.is_empty() || self.pending.is_some()
+    }
+
+    /// Whether clicking away hides the panel. Before a chat starts it always
+    /// does, like a launcher; once one has, the setting decides.
+    fn hides_on_blur(&self) -> bool {
+        !self.chat_started() || self.settings.hide_on_blur
+    }
+
     fn is_compact(&self) -> bool {
-        self.view == View::Chat && self.state.transcript.is_empty() && self.pending.is_none()
+        self.view == View::Chat && !self.chat_started()
     }
 
     /// The panel's corner radius: the card's in the compact bar, which is

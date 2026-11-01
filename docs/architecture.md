@@ -24,8 +24,10 @@
    that app. The app itself is never activated or hidden: doing that
    (`cx.activate` / `cx.hide`) raced with gpui's key-window workaround and
    made the shortcut unreliable.
-3. Esc hides the window (or leaves the settings view). With "Hide when
-   clicking away" on, losing key status hides it, but only if focus is still
+3. Esc hides the window (or leaves the settings view). Losing key status
+   hides it before a chat has started (no message and no reply streaming),
+   always; after that, only with "Hide when clicking away" on
+   (`hides_on_blur`). Either way, it only hides if focus is still
    elsewhere 150ms later (`BLUR_GRACE`), since key status can flicker while
    the panel is being shown.
 4. On hide, an idle timer is armed. If the window is still hidden and no

@@ -243,7 +243,7 @@ impl Render for SettingsPanel {
                 ),
                 Self::toggle(
                     "Hide when clicking away",
-                    "Close the panel when another app is used",
+                    "Once a chat has started; before that it always hides",
                     settings.hide_on_blur,
                     |settings, value| settings.hide_on_blur = value,
                     cx,

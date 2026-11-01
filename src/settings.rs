@@ -141,7 +141,8 @@ pub struct Settings {
     pub web_search: bool,
     pub web_fetch: bool,
     pub hotkey: Hotkey,
-    /// Hide the window when another app is activated, like Spotlight.
+    /// Hide the window when another app is activated, once a chat has
+    /// started. Before then it always hides, like Spotlight.
     pub hide_on_blur: bool,
 }
 
