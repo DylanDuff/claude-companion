@@ -20,8 +20,9 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
 - `src/markdown.rs` (parse to blocks, `DocumentCache`), `src/markdown_view.rs`
-  (render), `src/highlight.rs` (syntect), `src/zed_theme.rs` (translates the
-  user's Zed theme to a syntect theme): assistant replies as Markdown.
+  (render), `src/highlight.rs` (syntect), `src/code_theme.rs` (built-in
+  Catppuccin Macchiato), `src/sticky.rs` (pinned code headers),
+  `src/scroll.rs` (scroll-axis helpers): assistant replies as Markdown.
 - `src/panel.rs`: native NSPanel work (borderless rounded style,
   bottom-anchored resize, show/hide, drag) and `Placement` (`window.json`). `src/icon.rs`: embedded SVG icons (`icons!`) and
   `IconButton`.
@@ -62,6 +63,13 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
 - **Markdown text uses explicit `TextRun`s** (`markdown_view::runs`) so
   inline code can switch to Menlo. Runs don't inherit colour or weight from
   parents, so pass them down as `Look`.
+- **Corner radii are derived, not chosen** (`theme.rs`): change a size or
+  inset and the radii follow. Don't hard-code a radius on the panel or the
+  composer.
+- **Scrollers lock their axis** (`scroll::lock_axis`), or gpui converts
+  cross-axis wheel movement and nested scrollers fight.
+- **The system prompt is fixed** (`claude::COMPANION_CONTEXT`): the CLI
+  replays the recorded prompt on resume, so put nothing variable in it.
 - **Inline marks must stay non-overlapping** (`InlineBuilder::finish`):
   GPUI highlight runs can't overlap.
 - `Session` fields are ordered reader-first so a deliberate kill cancels the

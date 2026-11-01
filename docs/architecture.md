@@ -65,6 +65,15 @@
 - Composer row: **+** new chat, **sliders** open Settings (web access is
   switched there), and the **send** button (light when there's text to
   send).
+- **Corner radii nest** (`theme.rs` geometry constants): each radius is the
+  radius inside it plus the gap between them, running outward from the 36pt
+  buttons. Card = 18 + `COMPOSER_INSET` (6) = 24; panel = 24 +
+  `COMPOSER_MARGIN` (8) = 32. In the compact bar the panel is the card, so
+  its buttons sit `COMPACT_INSET` = 32 − 18 = 14 in. `COMPACT_HEIGHT` is
+  derived from the same constants.
+- **The chat clips at the composer's top edge:** the gap above the card is
+  the chat's bottom padding, not the card's top margin, so messages scroll
+  right down to the card.
 - Under each reply: **Copy** (raw Markdown; shows a tick for 1.5s),
   **Read aloud** (`/usr/bin/say -f -` fed the document's
   `plain_text()`, code blocks skipped; click again to stop, as dropping the
@@ -119,8 +128,19 @@ One long-lived process per conversation:
 ```
 claude -p --verbose --input-format stream-json --output-format stream-json \
   --include-partial-messages --tools <enabled> [--allowedTools <enabled>] \
-  --strict-mcp-config [--model <m>] [--effort <e>] [--resume <session_id>]
+  --strict-mcp-config --append-system-prompt <COMPANION_CONTEXT> \
+  [--model <m>] [--effort <e>] [--resume <session_id>]
 ```
+
+`--append-system-prompt` adds `COMPANION_CONTEXT`. It tells Claude it is in a
+small floating chat window rather than a terminal session: no shell, files
+or project, only the tools it's given, and replies render as Markdown in a
+narrow panel. Without it, Claude Code talks about the placeholder working
+directory and offers to run commands. The text is fixed on purpose. The CLI
+records the system prompt once per conversation (`--system-prompt-snapshot`
+defaults on) and reuses it verbatim on resume, so anything that varies,
+like the enabled tools, would go stale. The tool list itself arrives fresh
+through `--tools` on every launch.
 
 Each message is written to stdin as a single line:
 `{"type":"user","message":{"role":"user","content":"…"}}`. The process
@@ -217,45 +237,46 @@ Assistant replies render as Markdown; user messages and errors stay plain.
   merges the styles.
 - Unclosed constructs (a code fence while a reply is still streaming) are
   closed in `Builder::finish`, so partial replies render sensibly.
-- Code blocks are coloured by syntect (pure-Rust `fancy-regex`) using the
-  **user's Zed theme** (`zed_theme.rs`), falling back to `base16-ocean.dark`:
-  - The theme name comes from `~/.config/zed/settings.json` (JSONC: comments
-    and trailing commas are stripped first). For `{ mode, light, dark }`, the
-    dark theme is used, because the companion is always dark.
-  - The theme is looked up by name in `~/.config/zed/themes/*.json` and
-    `~/Library/Application Support/Zed/extensions/installed/*/themes/*.json`.
-    Zed's built-in themes (One Dark etc.) are compiled into Zed, so they
-    fall back.
-  - Zed styles tree-sitter captures while syntect grammars emit TextMate
-    scopes, so `SCOPES` maps TextMate selectors to Zed keys, each resolved
-    with Zed's fallback (`keyword.import` → `keyword`). Colour, italic and
-    bold carry over.
-  - Code blocks use the theme's `editor.background`, so its colours sit on
-    the surface they were designed for.
-  - The theme loads once at launch; restart the companion after changing
-    it in Zed.
-  - Known gap: where a grammar gives different tokens one scope, they share
-    a colour (Rust's `let` and `i32` are both `storage.type.rust`). Unknown languages render plain; `grammar_token` maps
+- **Highlighting:** syntect with its bundled grammars (pure-Rust
+  `fancy-regex`) and a built-in **Catppuccin Macchiato** theme
+  (`code_theme.rs`), matching the user's Zed theme. The colours were copied
+  once from the Catppuccin Zed extension. Zed styles tree-sitter captures
+  while syntect grammars emit TextMate scopes, so `SCOPES` pairs TextMate
+  selectors with the colour Zed gives the matching capture. Italic comments
+  and similar styles carry over. Where a grammar gives different tokens one
+  scope, they share a colour (Rust's `let` and `i32` are both
+  `storage.type.rust`).
+- **Languages:** unknown languages render plain. `grammar_token` maps
   common fence labels the bundled grammars lack (`ts` → `js`, `zsh` → `sh`,
   …). The grammars load on a background thread at launch
   (`highlight::preload`).
-- `DocumentCache` (owned by `Companion`) keys parsed documents by a hash of
-  their text and drops entries unused in the last render, so a message is
-  parsed and highlighted once. The streaming reply is re-parsed only when
-  new text arrives.
-- Rendering: code blocks have a language label, a Copy button and
-  horizontal scrolling (no wrapping, Menlo). Two details make the scrolling
-  work:
-  - **Content width:** the code sits in a non-shrinking flex item inside a
-    flex scroller. In gpui's default block layout the text was laid out
-    exactly as wide as its container, so the scroll range was 0 and long
-    lines were clipped.
-  - **Axis lock:** `restrict_scroll_to_axis` is set on the scroller.
-    Otherwise gpui turns vertical wheel movement over an x-only scroller
-    into horizontal scrolling, and scrolling the chat past a code block
-    would slide the code. Links are clickable
-  (`InteractiveText` → `open_url`). Inline code can't change font family
-  through a highlight, so it uses colour and a background instead.
+- **Caching:** `DocumentCache` (owned by `Companion`) keys parsed documents
+  by a hash of their text and drops entries unused in the last render, so a
+  message is parsed and highlighted once. The streaming reply is re-parsed
+  only when new text arrives.
+- **Inline text** is built from explicit `TextRun`s, so inline code can
+  switch to Menlo. Links are clickable (`InteractiveText` → `open_url`).
+- **Code blocks** are a rounded card on the theme's background (`BASE`),
+  with a header (language label and Copy) above a horizontal scroller (no
+  wrapping, Menlo):
+  - **Sticky header** (`sticky.rs`): gpui has no `position: sticky`, so
+    `StickyHeader` lays the header out above the body and, in prepaint,
+    shifts it down to the top of the visible chat (the content mask) while
+    the block is partly scrolled away, stopping at the block's bottom. It
+    shifts before the header's prepaint, so the Copy button's hitbox moves
+    with it. The header is opaque and painted after the body, so it covers
+    the code when pinned.
+  - **Edge-to-edge scrolling:** the card has no padding. The code's padding
+    is inside the scrolled content, so code rests inset but scrolls all the
+    way to the card's edges. The code is a non-shrinking flex item;
+    otherwise gpui's block layout sizes it to the container and leaves no
+    scroll range.
+  - **Scroll axes** (`scroll.rs`): gpui turns wheel movement along one axis
+    into scrolling along the other for single-axis scrollers, and sends each
+    wheel event to every scroller under the pointer. `lock_axis` is set on
+    both the code scroller and the chat, and `contain_horizontal` stops
+    mostly-sideways swipes at a code block, so swiping code doesn't also
+    scroll the chat.
 
 ## Known limitations
 
