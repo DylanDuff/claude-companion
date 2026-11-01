@@ -197,14 +197,18 @@ impl RenderContext {
             .gap_2()
             .child(header)
             .child(
-                div()
-                    .id(self.id())
-                    .overflow_x_scroll()
-                    .font_family(MONOSPACE)
-                    .text_size(px(13.5))
-                    .line_height(px(21.))
-                    .whitespace_nowrap()
-                    .child(styled),
+                horizontal_scroll(self.id()).child(
+                    // A flex item that doesn't shrink keeps its natural width, so
+                    // long lines overflow (and scroll) instead of being laid out
+                    // to the container's width and clipped.
+                    div()
+                        .flex_none()
+                        .font_family(MONOSPACE)
+                        .text_size(px(13.5))
+                        .line_height(px(21.))
+                        .whitespace_nowrap()
+                        .child(styled),
+                ),
             )
             .into_any_element()
     }
@@ -268,6 +272,16 @@ impl RenderContext {
             .on_click(ranges, move |index, _, cx| cx.open_url(&urls[index]))
             .into_any_element()
     }
+}
+
+/// A row that scrolls sideways and ignores vertical wheel movement. Without
+/// `restrict_scroll_to_axis`, gpui turns vertical scrolling over an x-only
+/// scroller into horizontal scrolling, so scrolling the chat past a code
+/// block would slide the code instead.
+fn horizontal_scroll(id: impl Into<gpui::ElementId>) -> gpui::Stateful<gpui::Div> {
+    let mut scroller = div().id(id).flex().overflow_x_scroll();
+    scroller.style().restrict_scroll_to_axis = Some(true);
+    scroller
 }
 
 /// Covers the whole text with runs: unmarked gaps in the base look, marked

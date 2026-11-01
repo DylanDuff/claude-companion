@@ -228,7 +228,16 @@ Assistant replies render as Markdown; user messages and errors stay plain.
   parsed and highlighted once. The streaming reply is re-parsed only when
   new text arrives.
 - Rendering: code blocks have a language label, a Copy button and
-  horizontal scrolling (no wrapping, Menlo). Links are clickable
+  horizontal scrolling (no wrapping, Menlo). Two details make the scrolling
+  work:
+  - **Content width:** the code sits in a non-shrinking flex item inside a
+    flex scroller. In gpui's default block layout the text was laid out
+    exactly as wide as its container, so the scroll range was 0 and long
+    lines were clipped.
+  - **Axis lock:** `restrict_scroll_to_axis` is set on the scroller.
+    Otherwise gpui turns vertical wheel movement over an x-only scroller
+    into horizontal scrolling, and scrolling the chat past a code block
+    would slide the code. Links are clickable
   (`InteractiveText` → `open_url`). Inline code can't change font family
   through a highlight, so it uses colour and a background instead.
 
