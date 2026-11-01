@@ -5,7 +5,10 @@ use gpui::{
 
 use crate::{
     claude::{self, Event},
+    hotkey,
     message_bubble::MessageBubble,
+    settings::{Choice, Settings},
+    settings_panel::{SettingsEvent, SettingsPanel},
     state::{Role, State},
     text_input::{Submit, TextInput},
     theme,
@@ -13,12 +16,13 @@ use crate::{
 
 const CONTEXT: &str = "Companion";
 
-actions!(companion, [Hide, NewChat]);
+actions!(companion, [Hide, NewChat, ToggleSettings]);
 
 pub fn key_bindings() -> Vec<KeyBinding> {
     vec![
         KeyBinding::new("escape", Hide, Some(CONTEXT)),
         KeyBinding::new("cmd-n", NewChat, Some(CONTEXT)),
+        KeyBinding::new("cmd-,", ToggleSettings, Some(CONTEXT)),
     ]
 }
 
@@ -28,41 +32,87 @@ struct Pending {
     reply: String,
     /// What Claude is doing when it isn't writing, e.g. searching.
     status: Option<SharedString>,
-    finished: Option<(Option<String>, Result<String, String>)>,
+}
+
+/// A running `claude` process plus the task reading its output. The reader
+/// is declared first so it is cancelled before the process is killed and
+/// never reports that deliberate exit.
+struct Session {
+    _reader: Task<()>,
+    process: claude::Process,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum View {
+    Chat,
+    Settings,
 }
 
 pub struct Companion {
     state: State,
-    input: Entity<TextInput>,
+    settings: Settings,
+    session: Option<Session>,
     pending: Option<Pending>,
-    /// Owns the running `claude` process; dropping it kills the process.
-    reply_task: Option<Task<()>>,
+    /// The last reply is in the transcript but its `result` hasn't arrived.
+    /// Messages sent meanwhile are queued by the CLI.
+    unsettled: bool,
+    /// The reply ended without streamed text, so use the `result` text.
+    needs_result_text: bool,
+    /// Settings changed CLI flags while a reply was running.
+    restart_when_idle: bool,
+    /// Kills the process after the session timeout while hidden.
+    idle_shutdown: Option<Task<()>>,
+    view: View,
+    input: Entity<TextInput>,
+    settings_panel: Entity<SettingsPanel>,
+    focus_handle: FocusHandle,
     scroll: ScrollHandle,
     visible: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl Companion {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextInput::new("Ask Claude…", cx));
+        let settings_panel = cx.new(|_| SettingsPanel::new(settings.clone()));
         let subscriptions = vec![
             cx.subscribe_in(&input, window, |this, _, _: &Submit, _, cx| this.submit(cx)),
-            // Behave like Spotlight: clicking away hides the window.
+            cx.subscribe_in(
+                &settings_panel,
+                window,
+                |this, _, event, window, cx| match event {
+                    SettingsEvent::Changed(settings) => this.apply_settings(settings.clone(), cx),
+                    SettingsEvent::Closed => this.set_view(View::Chat, window, cx),
+                },
+            ),
             cx.observe_window_activation(window, |this, window, cx| {
-                if !window.is_window_active() {
+                if !window.is_window_active() && this.settings.hide_on_blur {
                     this.hide(cx);
                 }
             }),
         ];
         Self {
             state: State::load(),
-            input,
+            settings,
+            session: None,
             pending: None,
-            reply_task: None,
+            unsettled: false,
+            needs_result_text: false,
+            restart_when_idle: false,
+            idle_shutdown: None,
+            view: View::Chat,
+            input,
+            settings_panel,
+            focus_handle: cx.focus_handle(),
             scroll: ScrollHandle::new(),
             visible: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// A reply is streaming or hasn't settled yet.
+    fn is_busy(&self) -> bool {
+        self.pending.is_some() || self.unsettled
     }
 
     pub fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -74,14 +124,19 @@ impl Companion {
     }
 
     pub fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.idle_shutdown = None;
         // Never expire mid-reply: the reply resets the clock when it lands.
-        if self.pending.is_none() && self.state.expire_if_stale() {
+        let timeout = self.settings.session_timeout.duration();
+        if !self.is_busy() && self.state.expire_if_stale(timeout) {
+            self.session = None;
             self.save();
         }
+        // Start Claude while the user types, hiding its startup time.
+        self.ensure_session(cx);
         self.visible = true;
         cx.activate(true);
         window.activate_window();
-        window.focus(&self.input.focus_handle(cx));
+        self.focus_view(window, cx);
         self.scroll.scroll_to_bottom();
         cx.notify();
     }
@@ -92,97 +147,274 @@ impl Companion {
         }
         self.visible = false;
         cx.hide();
+        self.schedule_idle_shutdown(cx);
     }
 
-    fn on_hide(&mut self, _: &Hide, _: &mut Window, cx: &mut Context<Self>) {
-        self.hide(cx);
+    fn schedule_idle_shutdown(&mut self, cx: &mut Context<Self>) {
+        let timeout = self.settings.session_timeout.duration();
+        self.idle_shutdown = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(timeout).await;
+            this.update(cx, |companion, _| {
+                if !companion.visible && !companion.is_busy() {
+                    companion.session = None;
+                }
+            })
+            .ok();
+        }));
+    }
+
+    fn set_view(&mut self, view: View, window: &mut Window, cx: &mut Context<Self>) {
+        self.view = view;
+        self.focus_view(window, cx);
+        cx.notify();
+    }
+
+    fn focus_view(&self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.view {
+            View::Chat => window.focus(&self.input.read(cx).focus_handle(cx)),
+            View::Settings => window.focus(&self.focus_handle),
+        }
+    }
+
+    fn on_hide(&mut self, _: &Hide, window: &mut Window, cx: &mut Context<Self>) {
+        match self.view {
+            View::Settings => self.set_view(View::Chat, window, cx),
+            View::Chat => self.hide(cx),
+        }
+    }
+
+    fn on_toggle_settings(
+        &mut self,
+        _: &ToggleSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = match self.view {
+            View::Chat => View::Settings,
+            View::Settings => View::Chat,
+        };
+        self.set_view(view, window, cx);
     }
 
     fn on_new_chat(&mut self, _: &NewChat, _: &mut Window, cx: &mut Context<Self>) {
-        self.reply_task = None;
+        self.session = None;
         self.pending = None;
+        self.unsettled = false;
+        self.needs_result_text = false;
         self.state = State::default();
         self.save();
+        self.ensure_session(cx);
         cx.notify();
+    }
+
+    fn apply_settings(&mut self, mut settings: Settings, cx: &mut Context<Self>) {
+        let mut notice = None;
+        if settings.hotkey != self.settings.hotkey
+            && let Err(error) = hotkey::set(settings.hotkey, cx)
+        {
+            settings.hotkey = self.settings.hotkey;
+            notice = Some(SharedString::from(error));
+        }
+        let restart = self.settings.changes_cli_flags(&settings);
+        self.settings = settings;
+        if let Err(error) = self.settings.save() {
+            eprintln!("claude-companion: couldn't save settings: {error}");
+        }
+        if notice.is_some() {
+            let settings = self.settings.clone();
+            self.settings_panel
+                .update(cx, |panel, cx| panel.reset(settings, notice, cx));
+        }
+        if restart {
+            self.restart_when_idle = true;
+            self.restart_if_idle(cx);
+        }
+    }
+
+    /// Applies pending CLI flag changes by restarting Claude on the same
+    /// conversation, once no reply is running.
+    fn restart_if_idle(&mut self, cx: &mut Context<Self>) {
+        if !self.restart_when_idle || self.is_busy() {
+            return;
+        }
+        self.restart_when_idle = false;
+        self.session = None;
+        if self.visible {
+            self.ensure_session(cx);
+        }
+    }
+
+    /// Starts `claude` if it isn't running. Returns whether it is.
+    fn ensure_session(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.session.is_some() {
+            return true;
+        }
+        match claude::start(&self.settings, self.state.session_id.as_deref()) {
+            Ok((process, output)) => {
+                let reader = cx.spawn(async move |this, cx| {
+                    let errors = output
+                        .read(|event| {
+                            this.update(cx, |companion, cx| companion.apply(event, cx))
+                                .is_ok()
+                        })
+                        .await;
+                    this.update(cx, |companion, cx| companion.on_exit(errors, cx))
+                        .ok();
+                });
+                self.session = Some(Session {
+                    _reader: reader,
+                    process,
+                });
+                true
+            }
+            Err(error) => {
+                self.state.push(Role::Error, error);
+                self.save();
+                cx.notify();
+                false
+            }
+        }
     }
 
     fn submit(&mut self, cx: &mut Context<Self>) {
         if self.pending.is_some() || self.input.read(cx).text().trim().is_empty() {
             return;
         }
+        if !self.ensure_session(cx) {
+            return;
+        }
         let prompt = self.input.update(cx, |input, cx| input.take(cx));
-        self.state.push(Role::User, prompt.trim());
+        let prompt = prompt.trim();
+        self.state.push(Role::User, prompt);
         self.save();
 
-        let session_id = self.state.session_id.clone();
-        self.pending = Some(Pending::default());
-        self.reply_task = Some(cx.spawn(async move |this, cx| {
-            let result = claude::send(&prompt, session_id.as_deref(), |event| {
-                this.update(cx, |companion, cx| companion.apply(event, cx))
-                    .is_ok()
-            })
-            .await;
-            this.update(cx, |companion, cx| companion.finish(result, cx))
-                .ok();
-        }));
+        let session = self.session.as_mut().expect("session was just ensured");
+        if let Err(error) = session.process.send(prompt) {
+            self.session = None;
+            self.state
+                .push(Role::Error, format!("Couldn't reach claude: {error}"));
+            self.save();
+        } else {
+            self.pending = Some(Pending::default());
+        }
         self.scroll.scroll_to_bottom();
         cx.notify();
     }
 
     fn apply(&mut self, event: Event, cx: &mut Context<Self>) {
-        let Some(pending) = self.pending.as_mut() else {
-            return;
-        };
         match event {
             Event::MessageStarted => {
-                if !pending.reply.is_empty() && !pending.reply.ends_with("\n\n") {
+                if let Some(pending) = self.pending.as_mut()
+                    && !pending.reply.is_empty()
+                    && !pending.reply.ends_with("\n\n")
+                {
                     pending.reply.push_str("\n\n");
                 }
             }
             Event::TextDelta(text) => {
-                pending.reply.push_str(&text);
-                pending.status = None;
+                if let Some(pending) = self.pending.as_mut() {
+                    pending.reply.push_str(&text);
+                    pending.status = None;
+                }
             }
-            Event::ToolStarted(name) => pending.status = Some(tool_label(&name)),
+            Event::ToolStarted(name) => {
+                if let Some(pending) = self.pending.as_mut() {
+                    pending.status = Some(tool_label(&name));
+                }
+            }
+            Event::MessageEnded { last: false } => {}
+            Event::MessageEnded { last: true } => {
+                // Unlock now rather than at `result`, which follows a second
+                // or two of post-turn work in the CLI.
+                if let Some(pending) = self.pending.take() {
+                    self.needs_result_text = !self.commit(pending.reply);
+                    self.unsettled = true;
+                }
+            }
             Event::Finished {
                 session_id,
                 outcome,
-            } => pending.finished = Some((session_id, outcome)),
+            } => self.settle(session_id, outcome),
         }
+        self.restart_if_idle(cx);
         self.scroll.scroll_to_bottom();
         cx.notify();
     }
 
-    /// Moves the finished reply into the transcript. `result` is the process
-    /// outcome, used only when Claude never sent a result of its own.
-    fn finish(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
-        let Some(pending) = self.pending.take() else {
+    /// Adds a finished reply to the transcript and resets the idle clock.
+    /// Returns false, adding nothing, when the reply is empty.
+    fn commit(&mut self, reply: String) -> bool {
+        let reply = reply.trim();
+        if reply.is_empty() {
+            return false;
+        }
+        self.state.push(Role::Assistant, reply);
+        self.state.touch();
+        self.save();
+        true
+    }
+
+    fn settle(&mut self, session_id: Option<String>, outcome: Result<String, String>) {
+        // A result with no turn running is a startup failure such as a bad
+        // --resume. The process exits next and `on_exit` reports it.
+        if !self.is_busy() {
             return;
+        }
+        if session_id.is_some() {
+            self.state.session_id = session_id;
+        }
+        // Normally the reply was committed at its end; if the turn failed
+        // before that, the streamed text is still pending.
+        let streamed = if self.unsettled {
+            self.unsettled = false;
+            String::new()
+        } else {
+            self.pending
+                .take()
+                .map(|pending| pending.reply)
+                .unwrap_or_default()
         };
-        match (pending.finished, result) {
-            (Some((session_id, Ok(text))), _) => {
-                // The streamed text includes any preamble before a search;
-                // the result only holds the final message.
-                let reply = if pending.reply.trim().is_empty() {
-                    text
-                } else {
-                    pending.reply
-                };
-                self.state.push(Role::Assistant, reply.trim());
-                if session_id.is_some() {
-                    self.state.session_id = session_id;
+        let needs_result_text = std::mem::take(&mut self.needs_result_text);
+        match outcome {
+            Ok(text) => {
+                if !self.commit(streamed) && needs_result_text {
+                    self.commit(text);
                 }
-                self.state.touch();
             }
-            (Some((_, Err(reason))), _) | (None, Err(reason)) => {
+            Err(reason) => {
+                self.commit(streamed);
                 self.state.push(Role::Error, reason);
             }
-            (None, Ok(())) => self
-                .state
-                .push(Role::Error, "claude exited without a reply"),
         }
         self.save();
-        self.scroll.scroll_to_bottom();
+    }
+
+    /// The process exited without being asked to.
+    fn on_exit(&mut self, errors: String, cx: &mut Context<Self>) {
+        self.session = None;
+        let interrupted = self.is_busy();
+        self.pending = None;
+        self.unsettled = false;
+        self.needs_result_text = false;
+        if !interrupted && errors.is_empty() {
+            return;
+        }
+        let reason = if errors.is_empty() {
+            "claude exited before finishing the reply".to_string()
+        } else {
+            errors
+        };
+        // An unusable --resume (e.g. a deleted session) would fail the same
+        // way every time, so start the next message fresh instead.
+        if !interrupted && self.state.session_id.take().is_some() {
+            self.state.push(
+                Role::Error,
+                format!("Couldn't resume the conversation, so the next message starts a new one.\n{reason}"),
+            );
+        } else {
+            self.state.push(Role::Error, reason);
+        }
+        self.save();
         cx.notify();
     }
 
@@ -192,7 +424,21 @@ impl Companion {
         }
     }
 
-    fn render_transcript(&self) -> impl IntoElement {
+    fn render_chat(&self) -> AnyElement {
+        if self.state.transcript.is_empty() && self.pending.is_none() {
+            return div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_sm()
+                .text_color(theme::muted_text())
+                .child(format!(
+                    "Conversations reset after {} idle.",
+                    self.settings.session_timeout.label()
+                ))
+                .into_any_element();
+        }
         let messages = self
             .state
             .transcript
@@ -210,17 +456,25 @@ impl Companion {
             .gap_3()
             .children(messages)
             .children(self.pending.as_ref().map(render_pending))
+            .into_any_element()
     }
 
-    fn render_empty(&self) -> impl IntoElement {
+    fn render_composer(&self) -> impl IntoElement {
         div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_sm()
-            .text_color(theme::muted_text())
-            .child("Conversations reset after 5 minutes idle.")
+            .flex_none()
+            .p_3()
+            .border_t_1()
+            .border_color(theme::border())
+            .child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .rounded_lg()
+                    .bg(theme::surface())
+                    .text_sm()
+                    .line_height(px(20.))
+                    .child(self.input.clone()),
+            )
     }
 }
 
@@ -251,15 +505,12 @@ fn tool_label(name: &str) -> SharedString {
     }
 }
 
-impl Focusable for Companion {
-    fn focus_handle(&self, cx: &gpui::App) -> FocusHandle {
-        self.input.focus_handle(cx)
-    }
-}
-
 impl Render for Companion {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let is_empty = self.state.transcript.is_empty() && self.pending.is_none();
+        let hint = match self.view {
+            View::Chat => "esc to hide · ⌘N new chat · ⌘, settings",
+            View::Settings => "esc or ⌘, to go back",
+        };
         let header = div()
             .h(px(28.))
             .flex_none()
@@ -268,40 +519,23 @@ impl Render for Companion {
             .justify_center()
             .text_xs()
             .text_color(theme::muted_text())
-            .child("esc to hide · ⌘N new chat");
-        let composer = div()
-            .flex_none()
-            .p_3()
-            .border_t_1()
-            .border_color(theme::border())
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .rounded_lg()
-                    .bg(theme::surface())
-                    .text_sm()
-                    .line_height(px(20.))
-                    .child(self.input.clone()),
-            );
+            .child(hint);
 
         div()
             .key_context(CONTEXT)
+            .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_hide))
             .on_action(cx.listener(Self::on_new_chat))
+            .on_action(cx.listener(Self::on_toggle_settings))
             .size_full()
             .flex()
             .flex_col()
             .bg(theme::background())
             .text_color(theme::text())
             .child(header)
-            .map(|this| {
-                if is_empty {
-                    this.child(self.render_empty())
-                } else {
-                    this.child(self.render_transcript())
-                }
+            .map(|this| match self.view {
+                View::Chat => this.child(self.render_chat()).child(self.render_composer()),
+                View::Settings => this.child(self.settings_panel.clone()),
             })
-            .child(composer)
     }
 }

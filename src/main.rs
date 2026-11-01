@@ -2,7 +2,11 @@ mod claude;
 mod companion;
 mod hotkey;
 mod message_bubble;
+mod segmented;
+mod settings;
+mod settings_panel;
 mod state;
+mod storage;
 mod text_input;
 mod theme;
 
@@ -11,7 +15,7 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-use crate::companion::Companion;
+use crate::{companion::Companion, settings::Settings};
 
 actions!(app, [Quit]);
 
@@ -24,16 +28,18 @@ fn main() {
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
 
+        let settings = Settings::load();
+        let hotkey = settings.hotkey;
         let window = cx
             .open_window(window_options(cx), |window, cx| {
-                cx.new(|cx| Companion::new(window, cx))
+                cx.new(|cx| Companion::new(settings, window, cx))
             })
             .expect("failed to open the companion window");
         window
             .update(cx, |companion, window, cx| companion.show(window, cx))
             .ok();
 
-        hotkey::listen(window, cx);
+        hotkey::init(hotkey, window, cx);
     });
 }
 

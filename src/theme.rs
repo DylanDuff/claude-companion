@@ -24,6 +24,10 @@ pub fn accent() -> Rgba {
     rgb(0xd97757)
 }
 
+pub fn on_accent() -> Rgba {
+    rgb(0xffffff)
+}
+
 pub fn user_bubble() -> Rgba {
     rgb(0x3b3b45)
 }
