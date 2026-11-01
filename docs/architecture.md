@@ -7,12 +7,20 @@
    `WindowKind::PopUp` (480×560, transparent titlebar, not resizable), and
    the configured shortcut registered.
 2. The shortcut calls `Companion::toggle`:
-   - **visible and active** → `cx.hide()` (hides the whole app).
+   - **visible and key** → `panel::hide` (`orderOut:`).
    - otherwise → apply the expiry rule, **start `claude` if it isn't
-     running** (prewarm), `cx.activate(true)`, `window.activate_window()`,
-     focus, scroll to the bottom.
+     running** (prewarm), `panel::show` (`makeKeyAndOrderFront:`), focus,
+     scroll to the bottom.
+
+   The PopUp window is a non-activating `NSPanel`, so it takes keyboard
+   focus while the previous app stays frontmost, and hiding returns focus to
+   that app. The app itself is never activated or hidden: doing that
+   (`cx.activate` / `cx.hide`) raced with gpui's key-window workaround and
+   made the shortcut unreliable.
 3. Esc hides the window (or leaves the settings view). With "Hide when
-   clicking away" on, so does window deactivation, as with Spotlight.
+   clicking away" on, losing key status hides it, but only if focus is still
+   elsewhere 150ms later (`BLUR_GRACE`), since key status can flicker while
+   the panel is being shown.
 4. On hide, an idle timer is armed. If the window is still hidden and no
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.

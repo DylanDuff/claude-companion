@@ -43,6 +43,10 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   `on_exit` reports it and drops the session id.
 - **`last_activity` updates only when a reply finishes**; expiry is skipped
   while busy (`pending` or `unsettled`).
+- **Show/hide go through `panel.rs`** (`makeKeyAndOrderFront:` /
+  `orderOut:` on the non-activating NSPanel). Don't use `cx.activate` or
+  `cx.hide`: activating the app races with gpui's key-window workaround.
+  Hide-on-blur is debounced (`BLUR_GRACE`).
 - `Session` fields are ordered reader-first so a deliberate kill cancels the
   reader before it can report the exit.
 

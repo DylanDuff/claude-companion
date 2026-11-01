@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use gpui::{
     AnyElement, Context, Entity, FocusHandle, Focusable, KeyBinding, ScrollHandle, SharedString,
     Subscription, Task, Window, actions, div, prelude::*, px,
@@ -7,6 +9,7 @@ use crate::{
     claude::{self, Event},
     hotkey,
     message_bubble::MessageBubble,
+    panel,
     settings::{Choice, Settings},
     settings_panel::{SettingsEvent, SettingsPanel},
     state::{Role, State},
@@ -15,6 +18,9 @@ use crate::{
 };
 
 const CONTEXT: &str = "Companion";
+
+/// How long focus must stay elsewhere before hide-on-blur hides the panel.
+const BLUR_GRACE: Duration = Duration::from_millis(150);
 
 actions!(companion, [Hide, NewChat]);
 
@@ -61,6 +67,8 @@ pub struct Companion {
     restart_when_idle: bool,
     /// Kills the process after the session timeout while hidden.
     idle_shutdown: Option<Task<()>>,
+    /// Pending hide after the panel lost focus.
+    blur_check: Option<Task<()>>,
     view: View,
     input: Entity<TextInput>,
     settings_panel: Entity<SettingsPanel>,
@@ -86,7 +94,7 @@ impl Companion {
             ),
             cx.observe_window_activation(window, |this, window, cx| {
                 if !window.is_window_active() && this.settings.hide_on_blur {
-                    this.hide(cx);
+                    this.hide_after_blur(window, cx);
                 }
             }),
         ];
@@ -99,6 +107,7 @@ impl Companion {
             needs_result_text: false,
             restart_when_idle: false,
             idle_shutdown: None,
+            blur_check: None,
             view: View::Chat,
             input,
             settings_panel,
@@ -116,7 +125,7 @@ impl Companion {
 
     pub fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.visible && window.is_window_active() {
-            self.hide(cx);
+            self.hide(window, cx);
         } else {
             self.show(window, cx);
         }
@@ -133,20 +142,36 @@ impl Companion {
         // Start Claude while the user types, hiding its startup time.
         self.ensure_session(cx);
         self.visible = true;
-        cx.activate(true);
-        window.activate_window();
+        self.blur_check = None;
+        panel::show(window);
         self.focus_view(window, cx);
         self.scroll.scroll_to_bottom();
         cx.notify();
     }
 
-    fn hide(&mut self, cx: &mut Context<Self>) {
+    fn hide(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.visible {
             return;
         }
         self.visible = false;
-        cx.hide();
+        self.blur_check = None;
+        panel::hide(window);
         self.schedule_idle_shutdown(cx);
+    }
+
+    /// Hides once focus has stayed elsewhere briefly. Key status can flicker
+    /// while the panel is being shown, and hiding on that would swallow the
+    /// show.
+    fn hide_after_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.blur_check = Some(cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(BLUR_GRACE).await;
+            this.update_in(cx, |companion, window, cx| {
+                if companion.visible && !window.is_window_active() {
+                    companion.hide(window, cx);
+                }
+            })
+            .ok();
+        }));
     }
 
     fn schedule_idle_shutdown(&mut self, cx: &mut Context<Self>) {
@@ -178,7 +203,7 @@ impl Companion {
     fn on_hide(&mut self, _: &Hide, window: &mut Window, cx: &mut Context<Self>) {
         match self.view {
             View::Settings => self.set_view(View::Chat, window, cx),
-            View::Chat => self.hide(cx),
+            View::Chat => self.hide(window, cx),
         }
     }
 

@@ -2,6 +2,7 @@ mod claude;
 mod companion;
 mod hotkey;
 mod message_bubble;
+mod panel;
 mod segmented;
 mod settings;
 mod settings_panel;
