@@ -16,6 +16,7 @@ mod settings;
 mod settings_panel;
 mod shimmer;
 mod state;
+mod status_item;
 mod sticky;
 mod storage;
 mod switch;
@@ -55,6 +56,7 @@ fn main() {
                 .ok();
 
             hotkey::init(hotkey, window, cx);
+            status_item::install(window, cx);
         });
 }
 

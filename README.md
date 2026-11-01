@@ -28,6 +28,9 @@ cargo run
 | ⌘N | New chat |
 | ⌘Q | Quit |
 
+A sparkle in the menu bar shows it's running; its menu can show the panel,
+start a new chat, open settings or quit.
+
 ### Install as an app
 
 ```bash

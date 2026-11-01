@@ -19,6 +19,8 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   rows with a `Switch`), opened from the composer's sliders icon.
 - `src/text_input.rs`: adapted from gpui 0.2.2 `examples/input.rs`.
 - `src/hotkey.rs`: `global-hotkey` registration, polled from a GPUI task.
+- `src/status_item.rs`: the menu bar icon and its menu (AppKit), feeding
+  commands to the companion over a channel.
 - `src/markdown.rs` (parse to blocks, `DocumentCache`), `src/markdown_view.rs`
   (render), `src/highlight.rs` (syntect), `src/code_theme.rs` (built-in
   Catppuccin Macchiato), `src/sticky.rs` (pinned code headers),

@@ -484,6 +484,19 @@ impl Companion {
         self.set_view(view, window, cx);
     }
 
+    /// From the menu bar: a fresh chat, shown.
+    pub fn start_new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_chat(cx);
+        self.view = View::Chat;
+        self.show(window, cx);
+    }
+
+    /// From the menu bar: the settings, shown.
+    pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.view = View::Settings;
+        self.show(window, cx);
+    }
+
     fn on_new_chat(&mut self, _: &NewChat, _: &mut Window, cx: &mut Context<Self>) {
         self.new_chat(cx);
     }

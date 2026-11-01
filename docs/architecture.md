@@ -33,7 +33,12 @@
 4. On hide, an idle timer is armed. If the window is still hidden and no
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.
-5. ⌘N starts a new chat. ⌘Q quits. Once a chat has started, a **×**
+5. ⌘N starts a new chat. ⌘Q quits. The menu bar icon (`status_item.rs`, an
+   SF Symbols "sparkle" template image) shows the app is running and offers
+   Show Companion, New Chat, Settings… and Quit. gpui has no status bar
+   support, so the item, menu and an Objective-C target class are made with
+   AppKit directly. Menu clicks arrive outside gpui, so the target's methods
+   send a `Command` over a channel, and a gpui task applies it. Once a chat has started, a **×**
    appears at the top left, in a bar above the chat. It clears the
    conversation and hides, so the next show starts fresh. The button is a
    solid circle with the × cut out (`close-filled.svg`, via an SVG mask),
