@@ -1,10 +1,13 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window, div, px,
+    AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, IntoElement, ParentElement,
+    RenderOnce, SharedString, Styled, TextRun, Window, div, px,
 };
 
-use crate::{markdown::Document, markdown_view::MarkdownView, state::Role, theme};
+use crate::{
+    markdown::Document, markdown_view::MarkdownView, selection::Selectable, state::Role, theme,
+};
 
 /// One transcript entry. User messages sit right in a filled bubble as plain
 /// text; replies render as Markdown and errors as plain text, full width.
@@ -15,17 +18,39 @@ pub struct MessageBubble {
 }
 
 impl MessageBubble {
-    pub fn text(role: Role, text: impl Into<SharedString>) -> Self {
+    pub fn text(role: Role, text: impl Into<SharedString>, mut selectable: Selectable) -> Self {
+        let text = text.into();
+        let run = TextRun {
+            len: text.len(),
+            font: Font {
+                family: ".SystemUIFont".into(),
+                features: FontFeatures::default(),
+                fallbacks: None,
+                weight: FontWeight::NORMAL,
+                style: FontStyle::Normal,
+            },
+            color: match role {
+                Role::Error => theme::error().into(),
+                _ => theme::text().into(),
+            },
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
         Self {
             role,
-            content: text.into().into_any_element(),
+            content: selectable.text(text, vec![run]).into_any_element(),
         }
     }
 
-    pub fn markdown(id: impl Into<SharedString>, document: Rc<Document>) -> Self {
+    pub fn markdown(
+        id: impl Into<SharedString>,
+        document: Rc<Document>,
+        selectable: Selectable,
+    ) -> Self {
         Self {
             role: Role::Assistant,
-            content: MarkdownView::new(id, document).into_any_element(),
+            content: MarkdownView::new(id, document, selectable).into_any_element(),
         }
     }
 }

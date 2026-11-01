@@ -27,7 +27,8 @@ const SKY: u32 = 0x91d7e3;
 const SAPPHIRE: u32 = 0x7dc4e4;
 const BLUE: u32 = 0x8aadf4;
 const LAVENDER: u32 = 0xb7bdf8;
-const TEXT: u32 = 0xcad3f5;
+/// Default code text colour.
+pub const TEXT: u32 = 0xcad3f5;
 const OVERLAY_2: u32 = 0x939ab7;
 const BASE: u32 = 0x24273a;
 

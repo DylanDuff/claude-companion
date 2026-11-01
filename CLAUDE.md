@@ -70,6 +70,10 @@ macOS background app: ⌥Space toggles a floating GPUI window; each message runs
   cross-axis wheel movement and nested scrollers fight.
 - **The system prompt is fixed** (`claude::COMPANION_CONTEXT`): the CLI
   replays the recorded prompt on resume, so put nothing variable in it.
+- **All transcript text goes through `Selectable::text`** so it can be
+  hit-tested and highlighted; plain `StyledText` in the transcript won't be
+  selectable. `TextRegistry` is rebuilt every render and only hit-tested
+  between frames, when layouts have bounds.
 - **Inline marks must stay non-overlapping** (`InlineBuilder::finish`):
   GPUI highlight runs can't overlap.
 - `Session` fields are ordered reader-first so a deliberate kill cancels the

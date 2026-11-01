@@ -80,7 +80,21 @@
   task kills `say`) and, on the latest reply when idle, **Retry**.
   Retry drops the reply and re-sends the question. The CLI session can't be
   rewound, so Claude still has the earlier answer in context.
-- **Moving the panel:** press anywhere and drag. After `DRAG_THRESHOLD`
+- **Selecting text** (`selection.rs`): gpui 0.2.2 has no selectable text,
+  so every piece of transcript text (paragraphs, list items, table cells,
+  code, user and error messages) goes through `Selectable::text`, which
+  builds it from text runs, paints the selected part with a background, and
+  registers its `TextLayout` in the frame's `TextRegistry`. Positions are
+  `TextPoint { message, offset }`, where pieces of a message take
+  consecutive offsets in drawing order, so a selection can span pieces and
+  messages. On mouse-down the root hit-tests the registry: on text, a
+  selection starts and the press never moves the window; on empty space,
+  the selection clears and a window drag may start. While dragging,
+  `nearest` resolves gaps between pieces. ⌘C is the input's `Copy` action:
+  the input copies its own selection, or calls `propagate()` so the root
+  copies the transcript selection (pieces joined by newlines). Selections
+  are cleared on new chat, retry and expiry.
+- **Moving the panel:** press anywhere away from text and drag. After `DRAG_THRESHOLD`
   (4px) of movement with the left button held, `panel::begin_drag` hands the
   current event to `performWindowDragWithEvent:` and the window server moves
   the window until release. Waiting for movement keeps plain clicks working
@@ -280,7 +294,8 @@ Assistant replies render as Markdown; user messages and errors stay plain.
 
 ## Known limitations
 
-- Text in the transcript can't be selected or copied (code blocks have a
-  Copy button). Images in replies show as their alt text.
+- Selection is by drag only: no double-click word selection, shift-click
+  extension or auto-scroll while dragging past the edge. Images in replies
+  show as their alt text.
 - The input is single-line, and pasted newlines become spaces.
 - Shortcuts come from a fixed list; there is no key recorder.

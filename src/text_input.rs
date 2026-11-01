@@ -216,7 +216,10 @@ impl TextInput {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        self.copy_selection(cx);
+        // With nothing selected here, let ⌘C reach the transcript's selection.
+        if !self.copy_selection(cx) {
+            cx.propagate();
+        }
     }
 
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {

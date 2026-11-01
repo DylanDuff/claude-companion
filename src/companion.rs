@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use gpui::{
     AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
-    MouseDownEvent, MouseMoveEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task,
-    Window, actions, div, prelude::*, px,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString,
+    Subscription, Task, Window, actions, div, prelude::*, px,
 };
 use smol::io::AsyncWriteExt;
 
@@ -15,10 +15,11 @@ use crate::{
     message_bubble::MessageBubble,
     panel::{self, Panel, Placement},
     scroll,
+    selection::{Selectable, Selection, TextRegistry},
     settings::Settings,
     settings_panel::{SettingsEvent, SettingsPanel},
     state::{Role, State},
-    text_input::{Submit, TextInput},
+    text_input::{self, Submit, TextInput},
     theme,
 };
 
@@ -127,6 +128,11 @@ pub struct Companion {
     height: Option<f32>,
     /// Where the left button went down, while a window drag may still start.
     drag_origin: Option<Point<Pixels>>,
+    /// Text drawn in the last frame, for hit-testing selections.
+    text_registry: TextRegistry,
+    selection: Option<Selection>,
+    /// The left button went down on text and is extending `selection`.
+    selecting: bool,
     visible: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -185,6 +191,9 @@ impl Companion {
             placement_save: None,
             height: None,
             drag_origin: None,
+            text_registry: TextRegistry::default(),
+            selection: None,
+            selecting: false,
             visible: false,
             _subscriptions: subscriptions,
         }
@@ -208,6 +217,7 @@ impl Companion {
         // Never expire mid-reply: the reply resets the clock when it lands.
         let timeout = self.settings.session_timeout.duration();
         if !self.is_busy() && self.state.expire_if_stale(timeout) {
+            self.selection = None;
             self.session = None;
             self.save();
         }
@@ -315,6 +325,7 @@ impl Companion {
 
     fn new_chat(&mut self, cx: &mut Context<Self>) {
         self.speech = None;
+        self.selection = None;
         self.session = None;
         self.pending = None;
         self.unsettled = false;
@@ -425,6 +436,7 @@ impl Companion {
         };
         let prompt = transcript[question].text.clone();
         transcript.truncate(question + 1);
+        self.selection = None;
         self.speech = None;
         self.save();
         self.dispatch(&prompt, cx);
@@ -571,6 +583,27 @@ impl Companion {
         }
     }
 
+    /// ⌘C with a transcript selection. The input only passes ⌘C on when it
+    /// has no selection of its own.
+    fn copy_selection(&mut self, _: &text_input::Copy, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection.filter(|selection| !selection.is_empty()) else {
+            return;
+        };
+        let text = self.text_registry.text(selection.range());
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+    }
+
+    /// Where message `index`'s text registers, with its part of the
+    /// selection highlighted.
+    fn selectable(&self, index: usize) -> Selectable {
+        Selectable::new(
+            index,
+            self.text_registry.clone(),
+            self.selection.map(|selection| selection.range()),
+            theme::selection().into(),
+        )
+    }
+
     fn copy_reply(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(message) = self.state.transcript.get(index) else {
             return;
@@ -637,24 +670,65 @@ impl Companion {
         cx.notify();
     }
 
+    /// A press on transcript text starts a selection; anywhere else clears
+    /// it and may start moving the panel. Text always wins over dragging.
     fn on_mouse_down(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.drag_origin = Some(event.position);
+        let hit = match self.view {
+            View::Chat => self.text_registry.hit(event.position),
+            View::Settings => None,
+        };
+        match hit {
+            Some(point) => {
+                self.selection = Some(Selection::at(point));
+                self.selecting = true;
+                self.drag_origin = None;
+            }
+            None => {
+                self.selection = None;
+                self.drag_origin = Some(event.position);
+            }
+        }
         // In the chat, keystrokes always belong to the input: keep focus
         // there instead of letting the panel's root take it on click.
         if self.view == View::Chat {
             window.focus(&self.input.read(cx).focus_handle(cx));
             window.prevent_default();
         }
+        cx.notify();
     }
 
-    /// Moves the panel once a press anywhere on it (except the text input,
-    /// which keeps drags for selection) has moved past the threshold.
+    fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.drag_origin = None;
+        if std::mem::take(&mut self.selecting)
+            && self.selection.is_some_and(|selection| selection.is_empty())
+        {
+            // A click, not a drag: leave nothing selected.
+            self.selection = None;
+            cx.notify();
+        }
+    }
+
+    /// Extends a selection in progress, or moves the panel once a press
+    /// away from text (and outside the text input, which keeps drags for its
+    /// own selection) has moved past the threshold.
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.selecting {
+            if event.pressed_button != Some(MouseButton::Left) {
+                self.selecting = false;
+            } else if let Some(selection) = self.selection.as_mut()
+                && let Some(head) = self.text_registry.nearest(event.position)
+                && selection.head != head
+            {
+                selection.head = head;
+                cx.notify();
+            }
+            return;
+        }
         let Some(origin) = self.drag_origin else {
             return;
         };
@@ -736,6 +810,7 @@ impl Companion {
     }
 
     fn render_chat(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        self.text_registry.clear();
         let mut messages = Vec::with_capacity(self.state.transcript.len());
         for (index, message) in self.state.transcript.iter().enumerate() {
             let element = match message.role {
@@ -746,17 +821,20 @@ impl Companion {
                     .child(MessageBubble::markdown(
                         format!("message-{index}"),
                         self.documents.get(&message.text),
+                        self.selectable(index),
                     ))
                     .child(self.render_reply_actions(index, cx))
                     .into_any_element(),
-                role => MessageBubble::text(role, message.text.clone()).into_any_element(),
+                role => MessageBubble::text(role, message.text.clone(), self.selectable(index))
+                    .into_any_element(),
             };
             messages.push(element);
         }
+        let pending_selectable = self.selectable(self.state.transcript.len());
         let pending = self
             .pending
             .as_ref()
-            .map(|pending| render_pending(pending, &mut self.documents));
+            .map(|pending| render_pending(pending, &mut self.documents, pending_selectable));
         self.documents.sweep();
         scroll::lock_axis(div().id("transcript").flex_1().overflow_y_scroll())
             .track_scroll(&self.scroll)
@@ -842,7 +920,11 @@ impl Companion {
     }
 }
 
-fn render_pending(pending: &Pending, documents: &mut DocumentCache) -> AnyElement {
+fn render_pending(
+    pending: &Pending,
+    documents: &mut DocumentCache,
+    selectable: Selectable,
+) -> AnyElement {
     let status = pending.status.clone().unwrap_or_else(|| "Thinking…".into());
     let status_line = div()
         .text_xs()
@@ -851,7 +933,7 @@ fn render_pending(pending: &Pending, documents: &mut DocumentCache) -> AnyElemen
     if pending.reply.is_empty() {
         return status_line.into_any_element();
     }
-    let bubble = MessageBubble::markdown("pending", documents.get(&pending.reply));
+    let bubble = MessageBubble::markdown("pending", documents.get(&pending.reply), selectable);
     div()
         .flex()
         .flex_col()
@@ -895,10 +977,8 @@ impl Render for Companion {
             .on_action(cx.listener(Self::on_new_chat))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| this.drag_origin = None),
-            )
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_action(cx.listener(Self::copy_selection))
             .size_full()
             .flex()
             .flex_col()

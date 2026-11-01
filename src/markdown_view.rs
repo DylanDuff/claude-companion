@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, ClipboardItem, Font, FontFeatures, FontStyle, FontWeight, Hsla,
-    InteractiveText, SharedString, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window,
-    div, prelude::*, px, rgb,
+    InteractiveText, SharedString, StrikethroughStyle, TextRun, UnderlineStyle, Window, div,
+    prelude::*, px, rgb,
 };
 
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
     icon::Icon,
     markdown::{Block, Document, Inline, Marks},
     scroll,
+    selection::Selectable,
     sticky::StickyHeader,
     theme,
 };
@@ -26,13 +27,19 @@ pub struct MarkdownView {
     /// Prefix for element ids, unique per message.
     id: SharedString,
     document: Rc<Document>,
+    selectable: Selectable,
 }
 
 impl MarkdownView {
-    pub fn new(id: impl Into<SharedString>, document: Rc<Document>) -> Self {
+    pub fn new(
+        id: impl Into<SharedString>,
+        document: Rc<Document>,
+        selectable: Selectable,
+    ) -> Self {
         Self {
             id: id.into(),
             document,
+            selectable,
         }
     }
 }
@@ -42,6 +49,7 @@ impl RenderOnce for MarkdownView {
         let mut context = RenderContext {
             prefix: self.id,
             next_id: 0,
+            selectable: self.selectable,
         };
         let look = Look {
             color: theme::text().into(),
@@ -65,6 +73,8 @@ struct Look {
 struct RenderContext {
     prefix: SharedString,
     next_id: usize,
+    /// Registers each piece of text for selection, in drawing order.
+    selectable: Selectable,
 }
 
 impl RenderContext {
@@ -181,17 +191,9 @@ impl RenderContext {
             .font_weight(FontWeight::SEMIBOLD)
             .child(language.unwrap_or("text").to_uppercase())
             .child(copy);
-        let styled = StyledText::new(code.to_string()).with_highlights(highlights.iter().map(
-            |(range, paint)| {
-                let style = gpui::HighlightStyle {
-                    color: Some(rgb(paint.color).into()),
-                    font_style: paint.italic.then_some(FontStyle::Italic),
-                    font_weight: paint.bold.then_some(FontWeight::BOLD),
-                    ..gpui::HighlightStyle::default()
-                };
-                (range.clone(), style)
-            },
-        ));
+        let styled = self
+            .selectable
+            .text(code.to_string().into(), code_runs(code, highlights));
         let body = scroll::contain_horizontal(
             scroll::lock_axis(div().id(self.id()).flex().overflow_x_scroll()).child(
                 // A flex item that doesn't shrink keeps its natural width, so
@@ -262,7 +264,9 @@ impl RenderContext {
     }
 
     fn inline(&mut self, inline: &Inline, look: Look) -> AnyElement {
-        let styled = StyledText::new(inline.text.clone()).with_runs(runs(inline, look));
+        let styled = self
+            .selectable
+            .text(inline.text.clone().into(), runs(inline, look));
         if inline.links.is_empty() {
             return styled.into_any_element();
         }
@@ -276,6 +280,56 @@ impl RenderContext {
             .on_click(ranges, move |index, _, cx| cx.open_url(&urls[index]))
             .into_any_element()
     }
+}
+
+/// Runs for a code block: highlighted ranges in their colours, gaps in the
+/// theme's default text colour, all in Menlo.
+fn code_runs(code: &str, highlights: &[Highlight]) -> Vec<TextRun> {
+    let code_run = |len: usize, color: u32, italic: bool, bold: bool| TextRun {
+        len,
+        font: Font {
+            family: MONOSPACE.into(),
+            features: FontFeatures::default(),
+            fallbacks: None,
+            weight: if bold {
+                FontWeight::BOLD
+            } else {
+                FontWeight::NORMAL
+            },
+            style: if italic {
+                FontStyle::Italic
+            } else {
+                FontStyle::Normal
+            },
+        },
+        color: rgb(color).into(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let mut runs = Vec::new();
+    let mut offset = 0;
+    for (range, paint) in highlights {
+        if range.start > offset {
+            runs.push(code_run(
+                range.start - offset,
+                code_theme::TEXT,
+                false,
+                false,
+            ));
+        }
+        runs.push(code_run(range.len(), paint.color, paint.italic, paint.bold));
+        offset = range.end;
+    }
+    if offset < code.len() {
+        runs.push(code_run(
+            code.len() - offset,
+            code_theme::TEXT,
+            false,
+            false,
+        ));
+    }
+    runs
 }
 
 /// Covers the whole text with runs: unmarked gaps in the base look, marked

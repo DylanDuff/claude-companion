@@ -10,6 +10,7 @@ mod message_bubble;
 mod panel;
 mod scroll;
 mod segmented;
+mod selection;
 mod settings;
 mod settings_panel;
 mod state;
