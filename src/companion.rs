@@ -1,9 +1,10 @@
 use std::{path::PathBuf, rc::Rc, time::Duration};
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels, Point,
-    ScrollHandle, SharedString, Subscription, Task, Window, actions, div, img, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable, Hsla,
+    KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
+    Point, ScrollHandle, SharedString, Subscription, Task, Window, actions, div, img,
+    linear_color_stop, linear_gradient, prelude::*, px,
 };
 use smol::io::AsyncWriteExt;
 
@@ -67,6 +68,10 @@ const AUTOSCROLL_ZONE: f32 = 28.;
 /// Fastest auto-scroll, in points per step.
 const AUTOSCROLL_MAX_STEP: f32 = 24.;
 const AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(16);
+
+/// Space below the last message, above the composer. Text scrolling
+/// through it fades into the composer (see `render_chat_area`).
+const CHAT_BOTTOM_PADDING: f32 = 12. + theme::COMPOSER_MARGIN;
 
 /// Diameter of the close button's circle.
 const CLOSE_SIZE: f32 = 20.;
@@ -1077,6 +1082,33 @@ impl Companion {
             })
     }
 
+    /// The chat with a soft fade at its bottom edge, so text dims as it
+    /// scrolls under the composer. gpui has no gradient masks, so this is an
+    /// overlay fading to the panel's own tint. It spans only the chat's
+    /// bottom padding, leaving text at rest untouched.
+    fn render_chat_area(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let tint = Hsla::from(theme::background());
+        let fade = div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(px(CHAT_BOTTOM_PADDING))
+            .bg(linear_gradient(
+                180.,
+                linear_color_stop(tint.opacity(0.), 0.),
+                linear_color_stop(tint, 1.),
+            ));
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(self.render_chat(cx))
+            .child(fade)
+    }
+
     fn render_chat(&mut self, cx: &mut Context<Self>) -> AnyElement {
         self.text_registry.clear();
         let code_copy = self.code_copy(cx);
@@ -1137,7 +1169,7 @@ impl Companion {
             // The space above the composer lives here rather than as the
             // card's top margin, so scrolled messages clip right at the
             // card's edge instead of a margin's width above it.
-            .pb(px(12. + theme::COMPOSER_MARGIN))
+            .pb(px(CHAT_BOTTOM_PADDING))
             .flex()
             .flex_col()
             .gap_5()
@@ -1330,7 +1362,7 @@ impl Render for Companion {
                                 ),
                         ),
                 )
-                .child(self.render_chat(cx))
+                .child(self.render_chat_area(cx))
                 .child(self.render_composer(false, cx))
                 .into_any_element(),
         };
