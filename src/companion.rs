@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding, ScrollHandle,
-    SharedString, Subscription, Task, Window, actions, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable, KeyBinding, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Point, ScrollHandle, SharedString, Subscription, Task,
+    Window, actions, div, prelude::*, px,
 };
 use smol::io::AsyncWriteExt;
 
@@ -29,6 +30,10 @@ const BLUR_GRACE: Duration = Duration::from_millis(150);
 const COMPACT_HEIGHT: f32 = 96.;
 /// Panel height once there is a conversation or the settings are open.
 const EXPANDED_HEIGHT: f32 = 540.;
+
+/// How far the mouse must move while pressed before the panel starts moving,
+/// so plain clicks still reach buttons.
+const DRAG_THRESHOLD: f32 = 4.;
 
 /// How long a Copy button shows its tick.
 const COPIED_FEEDBACK: Duration = Duration::from_millis(1500);
@@ -99,6 +104,8 @@ pub struct Companion {
     copied_reset: Option<Task<()>>,
     /// The panel height last requested, so it is only resized on change.
     height: Option<f32>,
+    /// Where the left button went down, while a window drag may still start.
+    drag_origin: Option<Point<Pixels>>,
     visible: bool,
     _subscriptions: Vec<Subscription>,
 }
@@ -145,6 +152,7 @@ impl Companion {
             copied: None,
             copied_reset: None,
             height: None,
+            drag_origin: None,
             visible: false,
             _subscriptions: subscriptions,
         }
@@ -589,6 +597,32 @@ impl Companion {
         cx.notify();
     }
 
+    fn on_mouse_down(&mut self, event: &MouseDownEvent, _: &mut Window, _: &mut Context<Self>) {
+        self.drag_origin = Some(event.position);
+    }
+
+    /// Moves the panel once a press anywhere on it (except the text input,
+    /// which keeps drags for selection) has moved past the threshold.
+    fn on_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        let Some(origin) = self.drag_origin else {
+            return;
+        };
+        if event.pressed_button != Some(MouseButton::Left) {
+            self.drag_origin = None;
+            return;
+        }
+        let moved = event.position - origin;
+        if moved.x.abs() > px(DRAG_THRESHOLD) || moved.y.abs() > px(DRAG_THRESHOLD) {
+            self.drag_origin = None;
+            panel::begin_drag(window);
+        }
+    }
+
     fn is_compact(&self) -> bool {
         self.view == View::Chat && self.state.transcript.is_empty() && self.pending.is_none()
     }
@@ -803,6 +837,12 @@ impl Render for Companion {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::on_hide))
             .on_action(cx.listener(Self::on_new_chat))
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.drag_origin = None),
+            )
             .size_full()
             .flex()
             .flex_col()

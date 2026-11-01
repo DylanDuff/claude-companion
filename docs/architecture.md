@@ -52,6 +52,13 @@
   task kills `say`) and, on the latest reply when idle, **Retry**.
   Retry drops the reply and re-sends the question. The CLI session can't be
   rewound, so Claude still has the earlier answer in context.
+- **Moving the panel:** press anywhere and drag. After `DRAG_THRESHOLD`
+  (4px) of movement with the left button held, `panel::begin_drag` hands the
+  current event to `performWindowDragWithEvent:` and the window server moves
+  the window until release. Waiting for movement keeps plain clicks working
+  on buttons and links. The text input stops propagation of its mouse-down,
+  so drags there select text instead. gpui's `start_window_move` is a no-op
+  on macOS, hence the native call.
 - Icons are hand-drawn 24×24 stroke SVGs in `assets/icons/`, compiled in by
   the `icons!` macro and rendered with `svg()` (tinted by text colour).
 

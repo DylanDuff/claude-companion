@@ -177,6 +177,9 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) {
         self.is_selecting = true;
+        // Keep the press from reaching the panel, which would turn the drag
+        // into a window move instead of a text selection.
+        cx.stop_propagation();
 
         if event.modifiers.shift {
             self.select_to(self.index_for_mouse_position(event.position), cx);

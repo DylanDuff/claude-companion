@@ -93,6 +93,21 @@ mod native {
         });
     }
 
+    /// Hands the current mouse drag to the window server, which moves the
+    /// window until the button is released. gpui's `start_window_move` is a
+    /// no-op on macOS.
+    pub fn begin_drag(window: &Window) {
+        use objc::{class, msg_send, sel, sel_impl};
+
+        with_native_window(window, |native_window| unsafe {
+            let app: id = msg_send![class!(NSApplication), sharedApplication];
+            let event: id = msg_send![app, currentEvent];
+            if event != nil {
+                let _: () = msg_send![native_window, performWindowDragWithEvent: event];
+            }
+        });
+    }
+
     pub fn show(window: &Window) {
         with_native_window(window, |native_window| unsafe {
             let _: () = msg_send![native_window, makeKeyAndOrderFront: nil];
@@ -107,13 +122,18 @@ mod native {
 }
 
 #[cfg(target_os = "macos")]
-pub use native::{configure, hide, set_height, show};
+pub use native::{begin_drag, configure, hide, set_height, show};
 
 #[cfg(not(target_os = "macos"))]
 pub fn configure(_window: &Window) {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn set_height(_window: &Window, _height: f32) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn begin_drag(window: &Window) {
+    window.start_window_move();
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn show(window: &Window) {
