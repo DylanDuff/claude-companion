@@ -75,9 +75,12 @@ mod native {
             }
         }
 
-        /// Resizes to `height`, keeping the top edge where it is (AppKit
-        /// frames grow from the bottom-left). Call it outside gpui window
-        /// updates (e.g. from `cx.defer`) so gpui sees the new size.
+        /// Resizes to `height`, keeping the bottom edge where it is, so the
+        /// panel grows upward from where the composer sits (typically near
+        /// the bottom of the screen). If that would push the top past the
+        /// screen's visible area, the panel slides down just enough to fit.
+        /// Call it from a spawned task, outside gpui's app borrow, so gpui
+        /// sees the new size.
         pub fn set_height(self, height: f32) {
             unsafe {
                 let window = self.native_window;
@@ -86,9 +89,17 @@ mod native {
                 if (frame.size.height - height).abs() < 0.5 {
                     return;
                 }
-                let top = frame.origin.y + frame.size.height;
+                // AppKit frames have a bottom-left origin, so keeping
+                // `origin.y` keeps the bottom edge.
+                let mut bottom = frame.origin.y;
+                let screen: id = msg_send![window, screen];
+                if screen != nil {
+                    let visible: NSRect = msg_send![screen, visibleFrame];
+                    let visible_top = visible.origin.y + visible.size.height;
+                    bottom = bottom.min(visible_top - height).max(visible.origin.y);
+                }
                 let frame = NSRect::new(
-                    NSPoint::new(frame.origin.x, top - height),
+                    NSPoint::new(frame.origin.x, bottom),
                     NSSize::new(frame.size.width, height),
                 );
                 let _: () = msg_send![window, setFrame: frame display: YES];

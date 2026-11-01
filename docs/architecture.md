@@ -50,8 +50,11 @@
   frame, so the view change and the new size are drawn together, as checked
   frame by frame in a 60fps screen recording.
 
-  `Panel::set_height` keeps the top edge fixed, since AppKit frames grow
-  from the bottom-left.
+  `Panel::set_height` keeps the **bottom** edge fixed (AppKit frames have a
+  bottom-left origin, so it only changes the height), because the panel
+  usually sits near the bottom of the screen and must grow upward. If the
+  grown panel would extend past the top of the screen's `visibleFrame`, it
+  slides down just enough to fit.
 - **Focus:** in the chat view the root's mouse-down re-focuses the input and
   calls `prevent_default`, so clicking anywhere never takes keystrokes away
   from it. `Panel::show` also makes gpui's view first responder, because

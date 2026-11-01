@@ -53,7 +53,7 @@ fn main() {
 
 fn window_options(cx: &App) -> WindowOptions {
     // Starts at the expanded size; the companion shrinks it to the compact
-    // bar on first render when there's no conversation, keeping the top edge.
+    // bar on first render when there's no conversation, keeping the bottom edge.
     let bounds = Bounds::centered(None, size(px(440.), px(540.)), cx);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
