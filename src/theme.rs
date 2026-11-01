@@ -2,13 +2,14 @@ use gpui::{Hsla, Rgba, rgb, rgba};
 
 // Geometry. Corner radii nest: a container's radius is its child's radius
 // plus the gap between them, so the curves stay concentric. The chain runs
-// outward from the composer's round buttons.
+// outward from the composer card, whose radius is chosen (the round buttons
+// inside it would need 24pt to be concentric too, which reads as too round).
 
 /// Diameter of the composer's icon buttons, including send.
 pub const BUTTON_SIZE: f32 = 36.;
 /// Gap from the composer card's edge to the buttons inside it.
 pub const COMPOSER_INSET: f32 = 6.;
-pub const COMPOSER_RADIUS: f32 = BUTTON_SIZE / 2. + COMPOSER_INSET;
+pub const COMPOSER_RADIUS: f32 = 18.;
 /// Gap from the panel's edge to the composer card.
 pub const COMPOSER_MARGIN: f32 = 8.;
 pub const PANEL_RADIUS: f32 = COMPOSER_RADIUS + COMPOSER_MARGIN;

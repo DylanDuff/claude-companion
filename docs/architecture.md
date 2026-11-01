@@ -34,7 +34,7 @@
    reply is running when it fires (after the session timeout), the `claude`
    process is killed.
 5. ⌘N starts a new chat. ⌘Q quits. Once a chat has started, a **×**
-   appears at the top left, in a 40pt bar above the chat. It clears the
+   appears at the top left, in a bar above the chat. It clears the
    conversation and hides, so the next show starts fresh. The button is a
    solid circle with the × cut out (`close-filled.svg`, via an SVG mask),
    because gpui tints an icon in a single colour.
@@ -92,14 +92,18 @@
   - ⌘V goes to the input first. With no text on the clipboard it calls
     `propagate()`, and the root's `paste_image` takes the image entry.
 - **Corner radii nest** (`theme.rs` geometry constants): each radius is the
-  radius inside it plus the gap between them, running outward from the 36pt
-  buttons. Card = 18 + `COMPOSER_INSET` (6) = 24; panel = 24 +
-  `COMPOSER_MARGIN` (8) = 32. The compact bar is the card on its own at the
-  card's scale: same 6pt inset, and the panel's radius switches to
-  `COMPACT_RADIUS` (24) while compact (`corner_radius`, applied natively by
-  `Panel::set_corner_radius` in the same task as the resize).
-  `COMPACT_HEIGHT` (84) is derived from the same constants and grows for
-  thumbnails and the notice line.
+  radius inside it plus the gap between them. The chain starts at the
+  composer card, whose radius is chosen: `COMPOSER_RADIUS` = 18. (The 36pt
+  round buttons inside it, 6pt in, would need 24 to be concentric too,
+  which reads as too round.) Panel = 18 + `COMPOSER_MARGIN` (8) = 26. The
+  compact bar is the card on its own at the card's scale: same 6pt inset,
+  and the panel's radius switches to `COMPACT_RADIUS` (18) while compact
+  (`corner_radius`, applied natively by `Panel::set_corner_radius` in the
+  same task as the resize). `COMPACT_HEIGHT` (84) is derived from the same
+  constants and grows for thumbnails and the notice line. The close button
+  follows the rule too: its 20pt circle sits `CLOSE_INSET` = 26 − 10 = 16pt
+  from the top and left, concentric with the panel's corner, and its bar is
+  16 + 20 + 16 tall.
 - **The chat clips at the composer's top edge:** the gap above the card is
   the chat's bottom padding, not the card's top margin, so messages scroll
   right down to the card.
