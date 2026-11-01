@@ -62,8 +62,11 @@ const DRAG_THRESHOLD: f32 = 4.;
 /// in, leaving `SNAP_GAP` between it and the edge.
 const SNAP_REACH: f64 = 40.;
 const SNAP_GAP: f64 = 12.;
-/// How often to check whether the button is still held after a drag pauses.
-const RELEASE_POLL: Duration = Duration::from_millis(50);
+/// How often to check whether the button is still held during a drag.
+const RELEASE_POLL: Duration = Duration::from_millis(16);
+/// The snap glides into place over this long, easing out.
+const SNAP_DURATION: Duration = Duration::from_millis(220);
+const SNAP_FRAME: Duration = Duration::from_millis(8);
 
 /// How long the panel must stay put before its position is saved.
 const PLACEMENT_SAVE_DELAY: Duration = Duration::from_millis(400);
@@ -168,8 +171,10 @@ pub struct Companion {
     panel: Option<Panel>,
     /// Saves the panel's position once it stops moving.
     placement_save: Option<Task<()>>,
-    /// The user dragged the panel and it hasn't snapped to the edges yet.
-    dragged: bool,
+    /// Waits for the end of a drag (macOS performs the drag, so there's no
+    /// mouse-up), then glides the panel to nearby screen edges. Kept apart
+    /// from `placement_save`, which every move reschedules.
+    snap: Option<Task<()>>,
     /// The panel height last requested, so it is only resized on change.
     height: Option<f32>,
     /// Images attached to the message being written.
@@ -247,7 +252,7 @@ impl Companion {
             copied_reset: None,
             panel,
             placement_save: None,
-            dragged: false,
+            snap: None,
             height: None,
             attachments: Vec::new(),
             attach_notice: None,
@@ -342,24 +347,47 @@ impl Companion {
         let Some(panel) = self.panel else {
             return;
         };
-        self.placement_save = Some(cx.spawn(async move |this, cx| {
+        // A drag or its snap is in progress; the snap saves when it lands.
+        if self.snap.is_some() {
+            return;
+        }
+        self.placement_save = Some(cx.spawn(async move |_, cx| {
             cx.background_executor().timer(PLACEMENT_SAVE_DELAY).await;
-            while this
-                .update(cx, |companion, _| companion.dragged)
-                .unwrap_or(false)
-            {
-                if Panel::left_button_down() {
-                    cx.background_executor().timer(RELEASE_POLL).await;
-                    continue;
-                }
-                this.update(cx, |companion, _| companion.dragged = false)
-                    .ok();
-                // Run outside any gpui update, so gpui hears about the move.
-                if panel.snap_to_edges(SNAP_REACH, SNAP_GAP) {
-                    return;
+            panel.placement().save();
+        }));
+    }
+
+    /// Watches a drag the user started. On release it glides the panel into
+    /// any screen edge within reach (or past one, such as over the Dock),
+    /// easing out, then saves where it lands.
+    fn snap_after_drag(&mut self, panel: Panel, cx: &mut Context<Self>) {
+        self.placement_save = None;
+        self.snap = Some(cx.spawn(async move |this, cx| {
+            while Panel::left_button_down() {
+                cx.background_executor().timer(RELEASE_POLL).await;
+            }
+            if let Some(target) = panel.snap_target(SNAP_REACH, SNAP_GAP) {
+                // AppKit's own animated move doesn't animate this borderless
+                // panel, so step it here, timed by the clock so the glide
+                // takes SNAP_DURATION however late the timer runs. Each step
+                // runs outside any gpui update.
+                let from = panel.origin();
+                let start = std::time::Instant::now();
+                loop {
+                    let t = (start.elapsed().as_secs_f64() / SNAP_DURATION.as_secs_f64()).min(1.);
+                    let eased = 1. - (1. - t).powi(3);
+                    panel.set_origin(
+                        from.0 + (target.0 - from.0) * eased,
+                        from.1 + (target.1 - from.1) * eased,
+                    );
+                    if t >= 1. {
+                        break;
+                    }
+                    cx.background_executor().timer(SNAP_FRAME).await;
                 }
             }
             panel.placement().save();
+            this.update(cx, |companion, _| companion.snap = None).ok();
         }));
     }
 
@@ -941,8 +969,8 @@ impl Companion {
         if moved.x.abs() > px(DRAG_THRESHOLD) || moved.y.abs() > px(DRAG_THRESHOLD) {
             self.drag_origin = None;
             if let Some(panel) = self.panel {
-                self.dragged = true;
                 panel.begin_drag();
+                self.snap_after_drag(panel, cx);
             }
         }
     }

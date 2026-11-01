@@ -154,46 +154,47 @@ mod native {
             }
         }
 
-        /// Moves the panel `gap` in from any edge of the screen's usable area
-        /// (no menu bar or Dock) that it's within `reach` of, animated, so it
-        /// sits neatly against that edge. Returns whether it moved.
-        pub fn snap_to_edges(self, reach: f64, gap: f64) -> bool {
+        /// Where the panel should snap to: `gap` in from any screen edge it's
+        /// within `reach` of or past. The sides and bottom are the screen's
+        /// real edges (the panel floats above the Dock); the top stops below
+        /// the menu bar. `None` if it's already there.
+        pub fn snap_target(self, reach: f64, gap: f64) -> Option<(f64, f64)> {
             unsafe {
                 let window = self.native_window;
                 let screen: id = msg_send![window, screen];
                 if screen == nil {
-                    return false;
+                    return None;
                 }
-                let area: NSRect = msg_send![screen, visibleFrame];
+                let whole: NSRect = msg_send![screen, frame];
+                let usable: NSRect = msg_send![screen, visibleFrame];
                 let frame: NSRect = msg_send![window, frame];
-                let snap = |position: f64, low: f64, high: f64, size: f64| {
-                    let (start, end) = (low + gap, high - gap - size);
-                    if (position - start).abs() <= reach {
-                        start
-                    } else if (position - end).abs() <= reach {
-                        end
-                    } else {
-                        position
-                    }
-                };
-                let x = snap(
+                let x = super::snap_axis(
                     frame.origin.x,
-                    area.origin.x,
-                    area.origin.x + area.size.width,
+                    whole.origin.x..whole.origin.x + whole.size.width,
                     frame.size.width,
+                    reach,
+                    gap,
                 );
-                let y = snap(
+                let y = super::snap_axis(
                     frame.origin.y,
-                    area.origin.y,
-                    area.origin.y + area.size.height,
+                    whole.origin.y..usable.origin.y + usable.size.height,
                     frame.size.height,
+                    reach,
+                    gap,
                 );
-                if x == frame.origin.x && y == frame.origin.y {
-                    return false;
-                }
-                let target = NSRect::new(NSPoint::new(x, y), frame.size);
-                let _: () = msg_send![window, setFrame: target display: YES animate: YES];
-                true
+                (x != frame.origin.x || y != frame.origin.y).then_some((x, y))
+            }
+        }
+
+        /// The panel's bottom-left corner, in AppKit screen coordinates.
+        pub fn origin(self) -> (f64, f64) {
+            let frame: NSRect = unsafe { msg_send![self.native_window, frame] };
+            (frame.origin.x, frame.origin.y)
+        }
+
+        pub fn set_origin(self, x: f64, y: f64) {
+            unsafe {
+                let _: () = msg_send![self.native_window, setFrameOrigin: NSPoint::new(x, y)];
             }
         }
 
@@ -295,9 +296,15 @@ impl Panel {
 
     pub fn begin_drag(self) {}
 
-    pub fn snap_to_edges(self, _reach: f64, _gap: f64) -> bool {
-        false
+    pub fn snap_target(self, _reach: f64, _gap: f64) -> Option<(f64, f64)> {
+        None
     }
+
+    pub fn origin(self) -> (f64, f64) {
+        (0., 0.)
+    }
+
+    pub fn set_origin(self, _x: f64, _y: f64) {}
 
     pub fn placement(self) -> Placement {
         Placement { x: 0., bottom: 0. }
@@ -308,4 +315,46 @@ impl Panel {
     pub fn show(self) {}
 
     pub fn hide(self) {}
+}
+
+/// Snaps one axis of the panel's position. `area` is the usable screen span
+/// on that axis and `size` the panel's extent. Within `reach` of an edge's
+/// snapped spot (`gap` in from the edge), or past it (e.g. over the Dock or
+/// off screen), the position moves to that spot; otherwise it stays.
+fn snap_axis(position: f64, area: std::ops::Range<f64>, size: f64, reach: f64, gap: f64) -> f64 {
+    let start = area.start + gap;
+    let end = (area.end - gap - size).max(start);
+    if position <= start + reach {
+        start
+    } else if position >= end - reach {
+        end
+    } else {
+        position
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snap_axis;
+
+    const AREA: std::ops::Range<f64> = 0.0..1000.0;
+
+    #[test]
+    fn snaps_within_reach() {
+        assert_eq!(snap_axis(40., AREA, 100., 40., 12.), 12.);
+        assert_eq!(snap_axis(860., AREA, 100., 40., 12.), 888.);
+    }
+
+    #[test]
+    fn snaps_back_from_past_an_edge() {
+        // Below the usable area, e.g. dropped over the Dock.
+        assert_eq!(snap_axis(-60., AREA, 100., 40., 12.), 12.);
+        // Partly off the far edge.
+        assert_eq!(snap_axis(950., AREA, 100., 40., 12.), 888.);
+    }
+
+    #[test]
+    fn leaves_the_middle_alone() {
+        assert_eq!(snap_axis(400., AREA, 100., 40., 12.), 400.);
+    }
 }
